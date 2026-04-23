@@ -1,0 +1,42 @@
+[package]
+name = "deskpet"
+version = "0.1.0"
+edition = "2021"
+default-run = "deskpet"
+
+[lib]
+name = "deskpet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+rand = "0.8"
+rand_distr = "0.4"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tokio = { version = "1", features = ["full"] }
+dirs = "6"
+base64 = "0.22"
+png = "0.17"
+thiserror = "2"
+aes-gcm = "0.10"
+sha2 = "0.10"
+hkdf = "0.12"
+tauri-plugin-global-shortcut = "2.3.1"
+once_cell = "1.21.4"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[[bin]]
+name = "deskpet"
+path = "src/main.rs"
+
+[[bin]]
+name = "verify_ghost"
+path = "src/bin/verify_ghost.rs"

@@ -1,0 +1,71 @@
+:root {
+  --pet-primary: #ff6b9d;
+  --pet-secondary: #c084fc;
+  --pet-bg: transparent;
+  --pet-text: #333;
+  --pet-text-light: #666;
+  --pet-bubble-bg: #ffffff;
+  --pet-bubble-border: #333;
+  --pet-bubble-shadow: #333;
+  --pet-bubble-radius: 16px;
+  --pet-bubble-tail-size: 10px;
+  --pet-user-bubble-bg: #f0faf0;
+  --pet-user-bubble-border: #a5d6a7;
+  --pet-user-bubble-shadow: #c8e6c9;
+  --pet-user-bubble-text: #2e7d32;
+  --pet-system-bubble-bg: rgba(255, 248, 240, 0.92);
+  --pet-system-bubble-border: #e0c8a0;
+  --pet-system-bubble-text: #a08050;
+  --pet-input-bg: #f5f5f5;
+  --pet-input-border: #ddd;
+  --pet-input-focus: #ff6b9d;
+  --pet-button-bg: #ff6b9d;
+  --pet-button-hover: #ff4785;
+  --pet-button-text: #fff;
+
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--pet-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  overflow: hidden;
+  background: transparent;
+  width: 100%;
+  height: 100%;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: transparent;
+}
+
+body::selection {
+  background: rgba(255, 107, 157, 0.3);
+}
+
+input::selection {
+  background: rgba(255, 107, 157, 0.3);
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeOutDown {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
