@@ -126,7 +126,6 @@ impl TimelineService {
 
         if hours_since >= INACTIVITY_IGNORE_HOURS {
             let intensity = ((hours_since as f64 / INACTIVITY_IGNORE_HOURS as f64) - 1.0)
-                .min(2.0)
                 .min(1.0);
             let mut event = EmotionalEvent::new(
                 EmotionalEventType::UserIgnoredPet,

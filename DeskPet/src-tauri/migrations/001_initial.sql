@@ -88,3 +88,15 @@ CREATE INDEX IF NOT EXISTS idx_exp_ghost ON Experiences(GhostId);
 CREATE INDEX IF NOT EXISTS idx_cc_ghost ON ConversationChunks(GhostId);
 CREATE INDEX IF NOT EXISTS idx_mi_ghost ON MasterImpressions(GhostId);
 CREATE INDEX IF NOT EXISTS idx_ee_ghost ON EmotionalEvents(GhostId);
+
+-- 聊天消息表
+CREATE TABLE IF NOT EXISTS ChatMessages (
+    Id TEXT PRIMARY KEY,
+    GhostId TEXT NOT NULL,
+    Role TEXT NOT NULL,
+    Content TEXT NOT NULL,
+    CreatedAt TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cm_ghost ON ChatMessages(GhostId);
+CREATE INDEX IF NOT EXISTS idx_cm_created ON ChatMessages(GhostId, CreatedAt DESC);

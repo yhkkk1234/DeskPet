@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import BubbleDialogue from './components/BubbleDialogue.vue'
 import PetRenderer from './components/PetRenderer.vue'
@@ -40,22 +41,25 @@ const error = ref('')
 const showPanel = ref(true)
 const showPersonality = ref(false)
 
-const { chatMessages, chatInput, chatLoading, sendMessage, pushUserMessage, pushSystemMessage, pushPetMessage, clearMessages } = useChat()
+const { chatMessages, chatLoading, ghostId, ttsEnabled, ttsRate, ttsPitch, ttsEngine, ttsVoice, pushUserMessage, pushUserImageMessage, pushSystemMessage, pushPetMessage, pushPetImageMessage, clearMessages, loadHistory } = useChat()
 const { bubblesVisible, inputVisible, showInput, hideBubbles, toggleInput, resetHideTimer, onNewMessage, onUserActivity, bindChatLoading, onInputFocus, onInputBlur } = useBubbleTimer()
-const { currentMood, currentAnimationState, moodConfig, isMoving, isPerformingIdle, petX, petY, facingDirection, isFlipped, movementStyle, updateMood, setPersonality, startIdleLoop, stopIdleLoop, movePetTo, resetPosition, playOneShot } = useAnimation()
-const { rendererType, spriteConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
+const { currentAnimationState, moodConfig, petX, petY, isFlipped, movementStyle, updateMood, setPersonality, startIdleLoop, stopIdleLoop, playOneShot } = useAnimation()
+const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, setLottieConfig, parseAsepriteJson } = usePetRenderer()
 
 bindChatLoading(chatLoading)
 
-const saveLoadPath = ref('')
-
-const aiEndpoint = ref('https://api.deepseek.com/v1')
-const aiApiKey = ref('')
-const aiModel = ref('deepseek-chat')
-
-const visionResult = ref('')
 const screenshotScreenRegion = ref({ x: 0, y: 0, width: 0, height: 0 })
 const screenshotAnalysisLoading = ref(false)
+const pendingScreenShotBase64 = ref<string | null>(null)
+const visionResult = ref('')
+const showEnhancedPrivacyDialog = ref(false)
+const enhancedPrivacyAccepted = ref(localStorage.getItem('deskpet_enhanced_privacy') === 'true')
+
+ttsEnabled.value = localStorage.getItem('deskpet_tts_enabled') === 'true'
+ttsRate.value = parseFloat(localStorage.getItem('deskpet_tts_rate') || '1.0')
+ttsPitch.value = parseFloat(localStorage.getItem('deskpet_tts_pitch') || '1.1')
+ttsEngine.value = (localStorage.getItem('deskpet_tts_engine') as 'system' | 'edge') || 'system'
+ttsVoice.value = localStorage.getItem('deskpet_tts_voice') || 'zh-CN-XiaoxiaoNeural'
 
 const loveHatePercent = computed(() => {
   if (!ghost.value) return 50
@@ -105,34 +109,105 @@ const moodText = computed(() => {
 
 const bubbleDialogueRef = ref<InstanceType<typeof BubbleDialogue> | null>(null)
 const screenshotBounce = ref(false)
-let dragStartX = 0
-let dragStartY = 0
-let didDrag = false
-
-function onPetMouseUp(e: MouseEvent) {
-  const dx = Math.abs(e.screenX - dragStartX)
-  const dy = Math.abs(e.screenY - dragStartY)
-  if (dx < 5 && dy < 5 && !didDrag) {
-    handlePetClick(e)
-  }
-}
+const screenShotPlaceholder = computed(() => 
+  pendingScreenShotBase64.value ? '想问这张截图什么？（直接回车=自动描述）' : '跟桌宠说说...'
+)
 
 async function generateGhost() {
   loading.value = true
   error.value = ''
   try {
     await invoke<string>('generate_ghost', { name: '小花' })
-    ghost.value = JSON.parse(await invoke<string>('get_ghost_status'))
-    updateMood(ghost.value.loveHate, ghost.value.curiosityLevel)
-    if (ghost.value.personality) {
-      setPersonality(ghost.value.personality)
+    const status = await invoke<string>('get_ghost_status')
+    const parsed = JSON.parse(status)
+    ghost.value = parsed
+    ghostId.value = parsed.ghostId
+    updateMood(parsed.loveHate, parsed.curiosityLevel)
+    if (parsed.personality) {
+      setPersonality(parsed.personality)
     }
+    clearMessages()
+    await loadHistory()
     pushSystemMessage(`${petName.value}的灵魂已注入！点击桌宠或按 Ctrl+Alt+C 开始对话。`)
     startIdleLoop()
   } catch (e: any) {
     error.value = e.toString()
   } finally {
     loading.value = false
+  }
+}
+
+async function loadAutosaveGhost(path: string) {
+  loading.value = true
+  error.value = ''
+  try {
+    await invoke<string>('load_ghost', { path })
+    const status = await invoke<string>('get_ghost_status')
+    const parsed = JSON.parse(status)
+    ghost.value = parsed
+    ghostId.value = parsed.ghostId
+    updateMood(parsed.loveHate, parsed.curiosityLevel)
+    if (parsed.personality) {
+      setPersonality(parsed.personality)
+    }
+    await loadHistory()
+    pushSystemMessage(`${petName.value}的灵魂已恢复！欢迎回来~`)
+    startIdleLoop()
+  } catch (e: any) {
+    console.warn('自动加载失败，创建新灵魂:', e)
+    generateGhost()
+  } finally {
+    loading.value = false
+  }
+}
+
+async function autoSaveGhost() {
+  if (!ghost.value) return
+  try {
+    await invoke('auto_save_ghost')
+  } catch (e) {
+    console.warn('自动保存失败:', e)
+  }
+}
+
+async function curiosityBackgroundAnalyze() {
+  if (!ghost.value) return
+  try {
+    const result = await invoke<{ analyzed: boolean; activity?: string }>('curiosity_background_analyze')
+    if (result.analyzed && result.activity) {
+      pushSystemMessage(`(好奇心观察) ${result.activity}`)
+      onNewMessage()
+    }
+  } catch (e) {
+    console.warn('好奇心后台分析失败:', e)
+  }
+}
+
+async function curiosityResearch() {
+  if (!ghost.value) return
+  try {
+    const result = await invoke<{ researched: boolean; interest?: string; finding?: string }>('curiosity_research')
+    if (result.researched && result.finding) {
+      pushSystemMessage(`(好奇心探索·${result.interest}) ${result.finding}`)
+      onNewMessage()
+    }
+  } catch (e) {
+    console.warn('好奇心探索失败:', e)
+  }
+}
+
+function acceptEnhancedPrivacy() {
+  enhancedPrivacyAccepted.value = true
+  localStorage.setItem('deskpet_enhanced_privacy', 'true')
+  showEnhancedPrivacyDialog.value = false
+  curiosityBackgroundAnalyze()
+}
+
+function declineEnhancedPrivacy() {
+  showEnhancedPrivacyDialog.value = false
+  if (ghost.value) {
+    invoke('set_curiosity_level', { level: 'Normal' }).catch(() => {})
+    ghost.value.curiosityLevel = 'Normal'
   }
 }
 
@@ -177,6 +252,15 @@ async function tickGhost() {
     }
     if (result.curiosityTriggered && ghost.value) {
       playOneShot('curious', 800)
+      if (ghost.value.curiosityLevel === 'Enhanced') {
+        if (!enhancedPrivacyAccepted.value) {
+          showEnhancedPrivacyDialog.value = true
+        } else {
+          curiosityBackgroundAnalyze()
+        }
+      } else if (ghost.value.curiosityLevel === 'Normal') {
+        curiosityResearch()
+      }
     }
   } catch (e: any) {
     console.error('Tick error:', e)
@@ -184,6 +268,7 @@ async function tickGhost() {
 }
 
 let tickInterval: ReturnType<typeof setInterval> | null = null
+let autoSaveInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
 let chatHotkeyUnlisten: (() => void) | null = null
 
@@ -251,8 +336,26 @@ async function openSettingsWindow() {
 }
 
 onMounted(async () => {
+  try {
+    await invoke('ensure_database')
+  } catch (e) {
+    console.warn('数据库初始化:', e)
+  }
+
   tickInterval = setInterval(tickGhost, 5000)
-  generateGhost()
+  autoSaveInterval = setInterval(autoSaveGhost, 120000)
+
+  try {
+    const found = await invoke<{ found: boolean; path: string }>('find_last_ghost')
+    if (found.found) {
+      await loadAutosaveGhost(found.path)
+    } else {
+      generateGhost()
+    }
+  } catch {
+    generateGhost()
+  }
+
   loadSpriteJson()
   loadRendererFromStorage()
 
@@ -271,8 +374,9 @@ onMounted(async () => {
     } else if (section === 'curiosity' || section === 'ghost') {
       try {
         const status = await invoke<string>('get_ghost_status')
-        ghost.value = JSON.parse(status)
-        updateMood(ghost.value.loveHate, ghost.value.curiosityLevel)
+        const parsed = JSON.parse(status)
+        ghost.value = parsed
+        updateMood(parsed.loveHate, parsed.curiosityLevel)
       } catch (e) {
         console.error('Failed to refresh ghost status:', e)
       }
@@ -293,6 +397,29 @@ onMounted(async () => {
     screenshotAnalysisLoading.value = false
   })
 
+  window.addEventListener('deskpet-tts-update', ((e: CustomEvent) => {
+    const { enabled, rate, pitch, engine, voice } = e.detail
+    ttsEnabled.value = enabled
+    ttsRate.value = rate ?? 1.0
+    ttsPitch.value = pitch ?? 1.1
+    ttsEngine.value = engine ?? 'system'
+    ttsVoice.value = voice ?? 'zh-CN-XiaoxiaoNeural'
+    localStorage.setItem('deskpet_tts_enabled', enabled.toString())
+    localStorage.setItem('deskpet_tts_rate', (rate ?? 1.0).toString())
+    localStorage.setItem('deskpet_tts_pitch', (pitch ?? 1.1).toString())
+    localStorage.setItem('deskpet_tts_engine', engine ?? 'system')
+    localStorage.setItem('deskpet_tts_voice', voice ?? 'zh-CN-XiaoxiaoNeural')
+  }) as EventListener)
+
+  listen('tts-updated', (event: any) => {
+    const { enabled, rate, pitch, engine, voice } = event.payload
+    ttsEnabled.value = enabled
+    ttsRate.value = rate ?? 1.0
+    ttsPitch.value = pitch ?? 1.1
+    ttsEngine.value = engine ?? 'system'
+    ttsVoice.value = voice ?? 'zh-CN-XiaoxiaoNeural'
+  })
+
   document.addEventListener('keydown', handleEscKey)
 })
 
@@ -303,11 +430,14 @@ function handleEscKey(e: KeyboardEvent) {
 }
 
 onUnmounted(() => {
+  autoSaveGhost()
   if (tickInterval) clearInterval(tickInterval)
+  if (autoSaveInterval) clearInterval(autoSaveInterval)
   if (hotkeyUnlisten) hotkeyUnlisten()
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
   document.removeEventListener('keydown', handleEscKey)
   stopIdleLoop()
+  window.speechSynthesis?.cancel()
 })
 
 function handleChatHotkey() {
@@ -330,6 +460,15 @@ function handlePetClick(e: MouseEvent) {
 }
 
 async function handleSendMessage(message: string) {
+  if (pendingScreenShotBase64.value) {
+    const base64 = pendingScreenShotBase64.value
+    pendingScreenShotBase64.value = null
+    onNewMessage()
+    await executeScreenShotAnalysis(base64, message)
+    resetHideTimer()
+    return
+  }
+
   pushUserMessage(message)
   chatLoading.value = true
   onNewMessage()
@@ -348,9 +487,14 @@ async function handleSendMessage(message: string) {
         overallAffinity: number
         latestSnippet: string | null
       }
+      generatedImage?: string
     }>('chat_with_pet', { message })
 
     pushPetMessage(result.response)
+
+    if (result.generatedImage) {
+      pushPetImageMessage('[图像已生成]', result.generatedImage)
+    }
 
     if (ghost.value) {
       ghost.value.loveHate = result.loveHate
@@ -421,17 +565,24 @@ async function analyzeScreenshot(base64: string) {
   }
 
   movePetToScreenshotRegion()
-
   playOneShot('surprise', 400)
 
+  pushUserImageMessage('📷 截图', base64)
+  onNewMessage()
+  screenshotAnalysisLoading.value = false
+
+  pendingScreenShotBase64.value = base64
+  showInput()
+}
+
+async function executeScreenShotAnalysis(base64: string, question: string) {
   screenshotAnalysisLoading.value = true
   try {
-    const result = await invoke<{ description: string; petName: string }>('analyze_screenshot', {
-      imageBase64: base64,
-    })
+    const params: Record<string, unknown> = { imageBase64: base64 }
+    if (question) params.question = question
+    const result = await invoke<{ description: string; petName: string }>('analyze_screenshot', params)
     visionResult.value = result.description
     pushPetMessage(result.description)
-    showInput()
     onNewMessage()
     screenshotBounce.value = true
     setTimeout(() => { screenshotBounce.value = false }, 600)
@@ -440,148 +591,33 @@ async function analyzeScreenshot(base64: string) {
     onNewMessage()
   } finally {
     screenshotAnalysisLoading.value = false
+    pendingScreenShotBase64.value = null
   }
 }
 
 async function movePetToScreenshotRegion() {
   try {
     const win = getCurrentWindow()
-    const pos = await win.outerPosition()
-    const winX = pos.x
-    const winY = pos.y
-
     const region = screenshotScreenRegion.value
-    const regionCenterX = region.x + region.width / 2
-    const regionCenterY = region.y + region.height / 2
+    if (!region || (region.width === 0 && region.height === 0)) return
 
-    const targetScreenX = regionCenterX + 40
-    const targetScreenY = regionCenterY - 80
+    const winSize = await win.innerSize()
+    const scaleFactor = await win.scaleFactor()
+    const winLogicalW = winSize.width / scaleFactor
+    const winLogicalH = winSize.height / scaleFactor
 
-    const dx = targetScreenX - winX
-    const dy = targetScreenY - winY
+    const targetScreenX = region.x + region.width + 20
+    const screenW = window.screen.availWidth
+    const screenH = window.screen.availHeight
 
-    const maxDx = window.innerWidth * 0.3
-    const maxDy = window.innerHeight * 0.3
-    const clampedDx = Math.max(-maxDx, Math.min(maxDx, dx))
-    const clampedDy = Math.max(-maxDy, Math.min(maxDy, dy))
+    let finalX = Math.max(0, Math.min(targetScreenX, screenW - winLogicalW))
+    let finalY = Math.max(0, Math.min(region.y - 40, screenH - winLogicalH))
 
-    await movePetTo(clampedDx, clampedDy)
+    await win.setPosition(new LogicalPosition(Math.round(finalX), Math.round(finalY)))
+    petX.value = 0
+    petY.value = 0
   } catch (e) {
-    console.warn('Failed to move pet to screenshot region:', e)
-  }
-}
-
-async function saveAIConfig() {
-  if (!aiEndpoint.value.trim()) {
-    error.value = '请填写 API Endpoint'
-    return
-  }
-  if (!aiApiKey.value.trim()) {
-    error.value = '请填写 API Key'
-    return
-  }
-  if (!aiModel.value.trim()) {
-    error.value = '请填写 Model 名称'
-    return
-  }
-
-  try {
-    await invoke('configure_ai', {
-      endpoint: aiEndpoint.value.trim(),
-      apiKey: aiApiKey.value.trim(),
-      model: aiModel.value.trim(),
-    })
-    error.value = ''
-    pushSystemMessage('AI 配置已保存，可以开始对话了')
-    onNewMessage()
-  } catch (e: any) {
-    error.value = '配置失败: ' + (e as string)
-  }
-}
-
-async function setCuriosityLevel(level: string) {
-  if (!ghost.value) return
-  try {
-    const result = await invoke<{
-      level: string
-      intensity: number
-      focusWeights: Record<string, number>
-      ownerCuriosity: number
-    }>('set_curiosity_level', { level })
-    if (ghost.value) {
-      ghost.value.curiosityLevel = result.level
-    }
-  } catch (e: any) {
-    error.value = `好奇心设置失败: ${e}`
-  }
-}
-
-async function triggerCuriosity() {
-  if (!ghost.value) return
-  try {
-    const result = await invoke<{
-      triggered: boolean
-      reason?: string
-      intensity?: number
-      interests?: Array<{ topic: string; weight: number }>
-      loveHate?: number
-    }>('trigger_curiosity')
-    if (!result.triggered) {
-      pushSystemMessage(result.reason || '好奇心不足，无法触发')
-      onNewMessage()
-      return
-    }
-    const interests = result.interests || []
-    const topicLabels: Record<string, string> = {
-      art_culture: '艺术与文化',
-      science_tech: '科学与技术',
-      social_people: '社交与人物',
-      emotion_inner: '情感与内心',
-      creative_imagination: '创意与想象',
-    }
-    const topTopics = interests.slice(0, 2).map((i: any) => topicLabels[i.topic] || i.topic).join('、')
-    pushPetMessage(`我有点好奇${topTopics}方面的东西呢...想跟我聊聊吗？`)
-    onNewMessage()
-    if (result.loveHate !== undefined && ghost.value) {
-      ghost.value.loveHate = result.loveHate
-    }
-  } catch (e: any) {
-    error.value = `好奇心触发失败: ${e}`
-  }
-}
-
-function togglePanel() {
-  showPanel.value = !showPanel.value
-}
-
-async function saveGhost() {
-  if (!ghost.value) return
-  try {
-    const path = saveLoadPath.value.trim() || 'deskpet.ghost'
-    await invoke('save_ghost', { path })
-    pushSystemMessage(`灵魂已保存到 ${path}`)
-    onNewMessage()
-    error.value = ''
-  } catch (e: any) {
-    error.value = `保存失败: ${e}`
-  }
-}
-
-async function loadGhost() {
-  const path = saveLoadPath.value.trim() || 'deskpet.ghost'
-  try {
-    await invoke('load_ghost', { path })
-    ghost.value = JSON.parse(await invoke<string>('get_ghost_status'))
-    updateMood(ghost.value.loveHate, ghost.value.curiosityLevel)
-    if (ghost.value.personality) {
-      setPersonality(ghost.value.personality)
-    }
-    startIdleLoop()
-    pushSystemMessage(`灵魂已从 ${path} 加载`)
-    onNewMessage()
-    error.value = ''
-  } catch (e: any) {
-    error.value = `加载失败: ${e}`
+    console.warn('Failed to move window to screenshot region:', e)
   }
 }
 
@@ -705,6 +741,7 @@ const transferParticles = computed(() => {
         :style-override="{ transform: `translate(${petX}px, ${petY}px)` }"
         :renderer-type="rendererType"
         :sprite-config="spriteConfig"
+        :lottie-config="lottieConfig"
         :tag-ranges="tagRanges"
         :frame-durations="frameDurations"
         :is-flipped="isFlipped"
@@ -756,6 +793,8 @@ const transferParticles = computed(() => {
           :pet-name="petName"
           :chat-loading="chatLoading"
           :love-hate="ghost?.loveHate ?? 0"
+          :placeholder="screenShotPlaceholder"
+          :allow-empty-send="!!pendingScreenShotBase64"
           @send="handleSendMessage"
           @input-focus="onInputFocus"
           @input-blur="onInputBlur"
@@ -834,6 +873,29 @@ const transferParticles = computed(() => {
       <div class="loading-spinner"></div>
       <span>桌宠正在看截图...</span>
     </div>
+
+    <!-- Enhanced Curiosity Privacy Dialog -->
+    <transition name="overlay-fade">
+      <div v-if="showEnhancedPrivacyDialog" class="privacy-overlay" @click.self>
+        <div class="privacy-dialog">
+          <div class="privacy-title">🔍 增强好奇心 - 隐私授权</div>
+          <div class="privacy-body">
+            <p>增强好奇心模式会定期截取您的桌面屏幕，让桌宠了解您正在做什么。</p>
+            <p><strong>隐私保护措施：</strong></p>
+            <ul>
+              <li>截图数据仅在本地处理，不会上传或存储原始截图</li>
+              <li>仅将 AI 分析结果的文本摘要记入主人印象</li>
+              <li>您可随时在设置中关闭或清除已收集的印象数据</li>
+            </ul>
+            <p class="privacy-warning">请确认您同意此功能的使用。</p>
+          </div>
+          <div class="privacy-buttons">
+            <button class="btn btn-privacy-accept" @click.stop="acceptEnhancedPrivacy">同意并开启</button>
+            <button class="btn btn-privacy-decline" @click.stop="declineEnhancedPrivacy">拒绝</button>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <!-- Soul Transfer Overlay -->
     <transition name="overlay-fade">
@@ -1951,6 +2013,86 @@ const transferParticles = computed(() => {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.privacy-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.privacy-dialog {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 320px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.privacy-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.privacy-body {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #555;
+}
+
+.privacy-body p {
+  margin: 6px 0;
+}
+
+.privacy-body ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.privacy-body li {
+  margin: 3px 0;
+}
+
+.privacy-warning {
+  color: #f44336;
+  font-weight: 600;
+  margin-top: 10px;
+}
+
+.privacy-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btn-privacy-accept {
+  flex: 1;
+  background: linear-gradient(135deg, #4caf50, #8bc34a);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-privacy-decline {
+  flex: 1;
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #ddd;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  cursor: pointer;
 }
 
 .overlay-fade-enter-active,

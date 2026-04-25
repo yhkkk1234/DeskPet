@@ -39,12 +39,13 @@ impl SentimentAnalyzer {
              }}\n\n\
              事件类型可选值：\n\
              - UserInitiatedChat: 用户主动发起聊天\n\
-             - UserCaredAboutPet: 用户表达了对桌宠的关心\n\
-             - UserPraisedPet: 用户夸奖了桌宠\n\
-             - UserSharedPersonalStory: 用户分享了个人经历\n\
-             - NormalChat: 普通闲聊\n\
-             - UserGotAngry: 用户生气了\n\
-             - UserDismissedPet: 用户敷衍了桌宠\n\n\
+              - UserCaredAboutPet: 用户表达了对桌宠的关心\n\
+              - UserPraisedPet: 用户夸奖了桌宠\n\
+              - UserSharedPersonalStory: 用户分享了个人经历\n\
+              - UserCelebratedTogether: 用户和桌宠一起庆祝了什么\n\
+              - NormalChat: 普通闲聊\n\
+              - UserGotAngry: 用户生气了\n\
+              - UserDismissedPet: 用户敷衍了桌宠\n\n\
              维度delta规则：\n\
              - 每个delta范围 -3.0 到 +3.0\n\
              - 正值表示该维度表现高，负值表示表现低\n\

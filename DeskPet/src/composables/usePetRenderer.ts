@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-export type RendererType = 'css' | 'spritesheet' | 'spine'
+export type RendererType = 'css' | 'spritesheet' | 'lottie'
 
 export interface SpriteConfig {
   src: string
@@ -10,6 +10,10 @@ export interface SpriteConfig {
   scale: number
   rows: number
   cols: number
+}
+
+export interface LottieConfig {
+  src: string  // path to directory containing lottie JSONs
 }
 
 export interface FrameTag {
@@ -48,20 +52,29 @@ const DEFAULT_SPRITE_CONFIG: SpriteConfig = {
   cols: 8,
 }
 
+const DEFAULT_LOTTIE_CONFIG: LottieConfig = {
+  src: '/pet/lottie/',
+}
+
 export function usePetRenderer() {
   const rendererType = ref<RendererType>('spritesheet')
   const spriteConfig = ref<SpriteConfig>({ ...DEFAULT_SPRITE_CONFIG })
+  const lottieConfig = ref<LottieConfig>({ ...DEFAULT_LOTTIE_CONFIG })
   const rendererReady = ref(false)
   const tagRanges = ref<Map<string, TagFrameRange>>(new Map())
   const frameDurations = ref<Map<number, number>>(new Map())
 
   function setRenderer(type: RendererType) {
     rendererType.value = type
-    rendererReady.value = type === 'css'
+    rendererReady.value = type === 'css' || type === 'lottie'
   }
 
   function setSpriteConfig(config: Partial<SpriteConfig>) {
     spriteConfig.value = { ...spriteConfig.value, ...config }
+  }
+
+  function setLottieConfig(config: Partial<LottieConfig>) {
+    lottieConfig.value = { ...lottieConfig.value, ...config }
   }
 
   function onSpriteLoaded() {
@@ -102,11 +115,13 @@ export function usePetRenderer() {
   return {
     rendererType,
     spriteConfig,
+    lottieConfig,
     rendererReady,
     tagRanges,
     frameDurations,
     setRenderer,
     setSpriteConfig,
+    setLottieConfig,
     onSpriteLoaded,
     parseAsepriteJson,
     getTagRange,

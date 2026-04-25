@@ -5,9 +5,22 @@ const props = defineProps<{
   role: 'pet' | 'user' | 'system'
   content: string
   petName: string
+  imageBase64?: string
 }>()
 
 const bubbleClass = computed(() => `bubble-${props.role}`)
+const hasImage = computed(() => !!props.imageBase64)
+const imageSrc = computed(() => {
+  if (!props.imageBase64) return ''
+  // 支持 url: 前缀（表示是URL）或纯 base64
+  if (props.imageBase64.startsWith('url:')) {
+    return props.imageBase64.slice(4)
+  }
+  if (props.imageBase64.startsWith('data:')) {
+    return props.imageBase64
+  }
+  return `data:image/png;base64,${props.imageBase64}`
+})
 
 const senderLabel = computed(() => {
   if (props.role === 'pet') return props.petName
@@ -17,12 +30,13 @@ const senderLabel = computed(() => {
 </script>
 
 <template>
-  <div class="bubble-wrapper" :class="bubbleClass">
+  <div class="bubble-wrapper" :class="[bubbleClass, { 'has-image': hasImage }]">
     <span v-if="senderLabel" class="bubble-sender" :class="{ 'sender-pet': role === 'pet', 'sender-user': role === 'user' }">
       {{ senderLabel }}
     </span>
     <div class="bubble-content">
-      <span class="bubble-text">{{ content }}</span>
+      <img v-if="hasImage" class="bubble-image" :src="imageSrc" alt="截图" />
+      <span v-if="content" class="bubble-text">{{ content }}</span>
     </div>
     <div v-if="role === 'pet'" class="bubble-tail bubble-tail-left"></div>
     <div v-if="role === 'user'" class="bubble-tail bubble-tail-right"></div>
@@ -138,5 +152,28 @@ const senderLabel = computed(() => {
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
   border-top: 10px solid #a5d6a7;
+}
+
+.bubble-image {
+  display: block;
+  max-width: 100%;
+  max-height: 140px;
+  width: auto;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  object-fit: contain;
+}
+
+.has-image .bubble-content {
+  padding: 5px;
+  overflow: hidden;
+}
+
+.has-image .bubble-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #888;
 }
 </style>

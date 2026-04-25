@@ -3,3 +3,4 @@ pub mod short_term_memory;
 pub mod long_term_memory;
 pub mod experience;
 pub mod context_window;
+pub mod local_compressor;

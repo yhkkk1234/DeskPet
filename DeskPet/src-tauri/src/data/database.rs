@@ -23,7 +23,36 @@ impl Database {
         self.conn
             .execute_batch(migration_sql)
             .map_err(|e| format!("Migration failed: {}", e))?;
+
+        // 运行 002_add_app_state.sql
+        let migration_sql2 = include_str!("../../migrations/002_add_app_state.sql");
+        self.conn
+            .execute_batch(migration_sql2)
+            .map_err(|e| format!("Migration 002 failed: {}", e))?;
+
         Ok(())
+    }
+
+    pub fn save_last_interaction(&self, timestamp: String) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE AppState SET LastInteraction = ?1, UpdatedAt = datetime('now') WHERE Id = 1",
+                params![timestamp],
+            )
+            .map_err(|e| format!("Save last_interaction failed: {}", e))?;
+        Ok(())
+    }
+
+    pub fn load_last_interaction(&self) -> Option<String> {
+        let result = self.conn.query_row(
+            "SELECT LastInteraction FROM AppState WHERE Id = 1",
+            params![],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(s) => Some(s),
+            Err(_) => None,
+        }
     }
 
     pub fn save_short_term_memory(
@@ -202,7 +231,7 @@ impl Database {
     pub fn get_experiences(&self, ghost_id: &str) -> Result<Vec<ExperienceRow>, String> {
         let mut stmt = self.conn
             .prepare(
-                "SELECT Id, GhostId, Name, Summary, Source, Proficiency, LastUsedAt FROM Experiences WHERE GhostId = ?1 ORDER BY Proficiency DESC",
+                "SELECT Id, GhostId, Name, Summary, Source, Proficiency, LastUsedAt, SourceMemoryId FROM Experiences WHERE GhostId = ?1 ORDER BY Proficiency DESC",
             )
             .map_err(|e| e.to_string())?;
 
@@ -216,6 +245,7 @@ impl Database {
                     source: row.get(4)?,
                     proficiency: row.get(5)?,
                     last_used_at: row.get(6)?,
+                    source_memory_id: row.get(7)?,
                 })
             })
             .map_err(|e| e.to_string())?
@@ -223,6 +253,103 @@ impl Database {
             .map_err(|e| e.to_string())?;
 
         Ok(rows)
+    }
+
+    pub fn update_experience_proficiency(&self, id: &str, proficiency: f64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE Experiences SET Proficiency = ?1, LastUsedAt = datetime('now') WHERE Id = ?2",
+                params![proficiency, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn update_stm_accessibility(&self, id: &str, accessibility: f64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE ShortTermMemories SET Accessibility = ?1, LastAccessedAt = datetime('now') WHERE Id = ?2",
+                params![accessibility, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn touch_memory_accessed(&self, stm_ids: &[&str], ltm_ids: &[&str]) -> Result<(), String> {
+        for id in stm_ids {
+            self.conn
+                .execute(
+                    "UPDATE ShortTermMemories SET LastAccessedAt = datetime('now') WHERE Id = ?1",
+                    params![id],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        for id in ltm_ids {
+            self.conn
+                .execute(
+                    "UPDATE LongTermMemories SET LastAccessedAt = datetime('now') WHERE Id = ?1",
+                    params![id],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub fn save_conversation_chunk(
+        &self,
+        id: &str,
+        ghost_id: &str,
+        summary: &str,
+        importance: f64,
+        token_count: Option<i32>,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO ConversationChunks (Id, GhostId, StartTime, Summary, Importance, TokenCount) VALUES (?1, ?2, datetime('now'), ?3, ?4, ?5)",
+                params![id, ghost_id, summary, importance, token_count],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_conversation_chunks(
+        &self,
+        ghost_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ConversationChunkRow>, String> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT Id, GhostId, StartTime, EndTime, Summary, Importance, TokenCount FROM ConversationChunks WHERE GhostId = ?1 ORDER BY StartTime DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![ghost_id, limit], |row| {
+                Ok(ConversationChunkRow {
+                    id: row.get(0)?,
+                    ghost_id: row.get(1)?,
+                    start_time: row.get(2)?,
+                    end_time: row.get(3)?,
+                    summary: row.get(4)?,
+                    importance: row.get(5)?,
+                    token_count: row.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        Ok(rows)
+    }
+
+    pub fn close_conversation_chunk(&self, id: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE ConversationChunks SET EndTime = datetime('now') WHERE Id = ?1",
+                params![id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn save_impression(
@@ -257,8 +384,8 @@ impl Database {
             let id = uuid::Uuid::new_v4().to_string();
             self.conn
                 .execute(
-                    "INSERT INTO MasterImpressions (Id, GhostId, OpennessScore, ConscientiousnessScore, ExtraversionScore, AgreeablenessScore, NeuroticismScore, CreativityScore, OverallAffinity, Snippets, UpdatedAt)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))",
+                     "INSERT INTO MasterImpressions (Id, GhostId, OpennessScore, ConscientiousnessScore, ExtraversionScore, AgreeablenessScore, NeuroticismScore, CreativityScore, OverallAffinity, Snippets, UpdatedAt)
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))",
                     params![id, ghost_id, openness, conscientiousness, extraversion, agreeableness, neuroticism, creativity, affinity, snippets],
                 )
                 .map_err(|e| e.to_string())?;
@@ -282,6 +409,152 @@ impl Database {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
                 params![id, ghost_id, event_type, intensity, love_hate_delta, baseline_delta, description],
             )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn save_chat_message(
+        &self,
+        id: &str,
+        ghost_id: &str,
+        role: &str,
+        content: &str,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO ChatMessages (Id, GhostId, Role, Content, CreatedAt) VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                params![id, ghost_id, role, content],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn load_chat_history(
+        &self,
+        ghost_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ChatMessageRow>, String> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT Id, GhostId, Role, Content, CreatedAt FROM ChatMessages WHERE GhostId = ?1 ORDER BY CreatedAt ASC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![ghost_id, limit], |row| {
+                Ok(ChatMessageRow {
+                    id: row.get(0)?,
+                    ghost_id: row.get(1)?,
+                    role: row.get(2)?,
+                    content: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        Ok(rows)
+    }
+
+    pub fn load_emotional_events(
+        &self,
+        ghost_id: &str,
+        limit: usize,
+    ) -> Result<Vec<EmotionalEventRow>, String> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT Id, GhostId, EventType, Intensity, LoveHateDelta, BaselineDelta, Description, CreatedAt
+                 FROM EmotionalEvents WHERE GhostId = ?1 ORDER BY CreatedAt DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![ghost_id, limit], |row| {
+                Ok(EmotionalEventRow {
+                    id: row.get(0)?,
+                    ghost_id: row.get(1)?,
+                    event_type: row.get(2)?,
+                    intensity: row.get(3)?,
+                    love_hate_delta: row.get(4)?,
+                    baseline_delta: row.get(5)?,
+                    description: row.get(6)?,
+                    created_at: row.get(7)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        Ok(rows)
+    }
+
+    pub fn load_impression(&self, ghost_id: &str) -> Option<ImpressionRow> {
+        let result = self.conn
+            .query_row(
+                "SELECT OpennessScore, ConscientiousnessScore, ExtraversionScore, AgreeablenessScore, NeuroticismScore, CreativityScore, OverallAffinity, Snippets
+                 FROM MasterImpressions WHERE GhostId = ?1",
+                params![ghost_id],
+                |row| {
+                    Ok(ImpressionRow {
+                        openness_score: row.get(0)?,
+                        conscientiousness_score: row.get(1)?,
+                        extraversion_score: row.get(2)?,
+                        agreeableness_score: row.get(3)?,
+                        neuroticism_score: row.get(4)?,
+                        creativity_score: row.get(5)?,
+                        overall_affinity: row.get(6)?,
+                        snippets: row.get(7)?,
+                    })
+                },
+            );
+        match result {
+            Ok(r) => Some(r),
+            Err(_) => None,
+        }
+    }
+
+    pub fn blur_core_memories_for_transfer(&self, ghost_id: &str, generation: u32) -> Result<usize, String> {
+        let memories = self.get_long_term_memories(ghost_id, 1000)?;
+        let mut blurred_count = 0;
+        let blur_amount = 0.05 * generation as f64;
+
+        for m in &memories {
+            if m.is_core_memory && m.importance > 0.7 {
+                let new_importance = (m.importance - blur_amount).max(0.7);
+                self.conn
+                    .execute(
+                        "UPDATE LongTermMemories SET Importance = ?1, IsBlurred = 1 WHERE Id = ?2",
+                        params![new_importance, m.id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                blurred_count += 1;
+            }
+        }
+        Ok(blurred_count)
+    }
+
+    pub fn update_long_term_memory_summary(&self, id: &str, new_summary: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE LongTermMemories SET Summary = ?1 WHERE Id = ?2",
+                params![new_summary, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn clear_short_term_memories(&self, ghost_id: &str) -> Result<usize, String> {
+        let count = self.count_short_term_memories(ghost_id)?;
+        self.conn
+            .execute("DELETE FROM ShortTermMemories WHERE GhostId = ?1", params![ghost_id])
+            .map_err(|e| e.to_string())?;
+        Ok(count)
+    }
+
+    pub fn clear_chat_history(&self, ghost_id: &str) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM ChatMessages WHERE GhostId = ?1", params![ghost_id])
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -321,6 +594,7 @@ pub struct ExperienceRow {
     pub source: String,
     pub proficiency: f64,
     pub last_used_at: Option<String>,
+    pub source_memory_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -333,4 +607,36 @@ pub struct EmotionalEventRow {
     pub baseline_delta: f64,
     pub description: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug)]
+pub struct ChatMessageRow {
+    pub id: String,
+    pub ghost_id: String,
+    pub role: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug)]
+pub struct ImpressionRow {
+    pub openness_score: f64,
+    pub conscientiousness_score: f64,
+    pub extraversion_score: f64,
+    pub agreeableness_score: f64,
+    pub neuroticism_score: f64,
+    pub creativity_score: f64,
+    pub overall_affinity: f64,
+    pub snippets: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct ConversationChunkRow {
+    pub id: String,
+    pub ghost_id: String,
+    pub start_time: String,
+    pub end_time: Option<String>,
+    pub summary: String,
+    pub importance: f64,
+    pub token_count: Option<i32>,
 }

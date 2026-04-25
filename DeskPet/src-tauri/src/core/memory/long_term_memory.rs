@@ -48,7 +48,7 @@ impl LongTermMemory {
         if !self.is_core_memory {
             return;
         }
-        let _blur_factor = 0.1 * generation as f64;
+        let _blur_factor = 0.1 * generation as f64; // 预留给未来 ai_assisted_blur()
         if self.base.importance > 0.7 {
             self.base.importance = (self.base.importance - 0.05 * generation as f64).max(0.7);
         }

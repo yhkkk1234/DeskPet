@@ -15,6 +15,8 @@ pub struct AIProviderConfig {
     pub model: String,
     pub vision_model: Option<String>,
     pub image_model: Option<String>,
+    pub image_gen_endpoint: Option<String>,
+    pub image_gen_api_key: Option<String>,
     pub is_default: bool,
 }
 
@@ -172,6 +174,70 @@ impl AIService {
             .map(|s| s.to_string())
             .ok_or_else(|| format!(
                 "AI 视觉响应格式异常\n响应: {}",
+                truncate_str(&response_text, 500)
+            ))
+    }
+
+    pub async fn generate_image(&self, prompt: &str) -> Result<String, String> {
+        let image_model = self.config.image_model.clone()
+            .unwrap_or_else(|| "dall-e-3".into());
+
+        let endpoint = self.config.image_gen_endpoint.clone()
+            .unwrap_or_else(|| self.config.endpoint.clone());
+
+        let api_key = self.config.image_gen_api_key.clone()
+            .unwrap_or_else(|| self.config.api_key.clone());
+
+        if api_key.trim().is_empty() {
+            return Err("API Key 为空，请先配置 AI 接口".into());
+        }
+
+        let body = serde_json::json!({
+            "model": image_model,
+            "prompt": prompt,
+            "n": 1,
+            "size": "512x512",
+            "response_format": "b64_json",
+        });
+
+        let url = format!("{}/images/generations", endpoint.trim_end_matches('/'));
+
+        let response = self.client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("生图请求失败: {} (URL: {})", e, url))?;
+
+        let status = response.status();
+        let response_text = response.text().await
+            .map_err(|e| format!("读取响应失败: {}", e))?;
+
+        if !status.is_success() {
+            let error_detail = extract_error_message(&response_text);
+            return Err(format!(
+                "生图 API 错误 [{}]: {} (URL: {})",
+                status.as_u16(),
+                error_detail,
+                url
+            ));
+        }
+
+        let response_json: serde_json::Value = serde_json::from_str(&response_text)
+            .map_err(|e| format!("解析JSON失败: {}\n原始响应: {}", e, truncate_str(&response_text, 500)))?;
+
+        response_json["data"][0]["b64_json"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| {
+                response_json["data"][0]["url"]
+                    .as_str()
+                    .map(|u| format!("url:{}", u))
+            })
+            .ok_or_else(|| format!(
+                "生图响应格式异常\n响应: {}",
                 truncate_str(&response_text, 500)
             ))
     }

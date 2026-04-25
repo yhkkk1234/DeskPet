@@ -1,6 +1,7 @@
 use crate::commands::chat_commands::AppState;
 use crate::services::ai_service::AIService;
 use crate::services::screenshot_service::ScreenshotService;
+use crate::core::soul::impression::ImpressionEvent;
 use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
@@ -17,9 +18,13 @@ pub async fn capture_screenshot() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn capture_region(x: i32, y: i32, width: i32, height: i32) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || ScreenshotService::capture_region(x, y, width, height))
+    tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        tokio::task::spawn_blocking(move || ScreenshotService::capture_region(x, y, width, height)),
+    )
     .await
-    .map_err(|e| format!("截图任务失败: {}", e))
+    .map_err(|_| "截图超时（15秒），请重试".into())
+    .and_then(|r| r.map_err(|e| format!("截图任务失败: {}", e)))
     .and_then(|r| r)
 }
 
@@ -96,5 +101,112 @@ pub async fn analyze_screenshot(
     Ok(serde_json::json!({
         "description": response,
         "petName": name,
+    }))
+}
+
+#[tauri::command]
+pub async fn curiosity_background_analyze(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let ai_config = {
+        let locked = state.ai_config.lock().map_err(|e| e.to_string())?;
+        locked.as_ref().cloned()
+    };
+
+    let ai_config = match ai_config {
+        Some(c) => c,
+        None => return Ok(serde_json::json!({ "analyzed": false, "reason": "AI not configured" })),
+    };
+
+    let ghost = {
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        locked.as_ref().cloned()
+    };
+
+    let ghost = match ghost {
+        Some(g) => g,
+        None => return Ok(serde_json::json!({ "analyzed": false, "reason": "No ghost" })),
+    };
+
+    if !matches!(ghost.soul.curiosity.level, crate::core::soul::curiosity::CuriosityLevel::Enhanced) {
+        return Ok(serde_json::json!({ "analyzed": false, "reason": "Not in Enhanced mode" }));
+    }
+
+    let base64 = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        tokio::task::spawn_blocking(|| ScreenshotService::capture_screen()),
+    )
+    .await
+    .map_err(|_| "截图超时".into())
+    .and_then(|r| r.map_err(|e| format!("截图失败: {}", e)))
+    .and_then(|r| r)?;
+
+    let system_prompt = format!(
+        "你是{}，一个桌宠。你正在后台好奇地观察主人的屏幕。\
+         请用一句话简要描述主人似乎在做什么（如'主人正在看技术文档'或'主人在玩游戏'）。\
+         同时评估主人此刻表现出的性格倾向，按6个维度各给-1到+1的值。\
+         严格按JSON格式回复：{{\"activity\": \"...\", \"openness\": 0, \"conscientiousness\": 0, \"extraversion\": 0, \"agreeableness\": 0, \"neuroticism\": 0, \"creativity\": 0}}",
+        ghost.name
+    );
+
+    let ai_service = AIService::new(ai_config);
+    let raw = ai_service.chat_with_image_base64(&system_prompt, &base64, "请观察这张屏幕截图", &[]).await?;
+
+    let json_str = {
+        let start = raw.find('{');
+        let end = raw.rfind('}');
+        match (start, end) {
+            (Some(s), Some(e)) if e > s => raw[s..=e].to_string(),
+            _ => return Ok(serde_json::json!({ "analyzed": false, "reason": "Parse error" })),
+        }
+    };
+
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap_or_default();
+    let activity = parsed["activity"].as_str().unwrap_or("主人正在使用电脑").to_string();
+
+    {
+        let mut locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        if let Some(g) = locked.as_mut() {
+            let imp_event = ImpressionEvent {
+                openness_delta: parsed["openness"].as_f64().unwrap_or(0.0).clamp(-1.0, 1.0),
+                conscientiousness_delta: parsed["conscientiousness"].as_f64().unwrap_or(0.0).clamp(-1.0, 1.0),
+                extraversion_delta: parsed["extraversion"].as_f64().unwrap_or(0.0).clamp(-1.0, 1.0),
+                agreeableness_delta: parsed["agreeableness"].as_f64().unwrap_or(0.0).clamp(-1.0, 1.0),
+                neuroticism_delta: parsed["neuroticism"].as_f64().unwrap_or(0.0).clamp(-1.0, 1.0),
+                creativity_delta: parsed["creativity"].as_f64().unwrap_or(0.0).clamp(-1.0, 1.0),
+                snippet: Some(format!("(好奇观察) {}", activity)),
+            };
+            g.soul.impression.apply_event(&imp_event, &g.soul.innate_tendency.preferred_dims);
+        }
+    }
+
+    {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            let ghost_snapshot = {
+                let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+                locked.as_ref().cloned()
+            };
+            if let Some(g) = ghost_snapshot {
+                let imp = &g.soul.impression;
+                let snippets_json = serde_json::to_string(&imp.general_impression_snippets).unwrap_or_else(|_| "[]".into());
+                let _ = db.save_impression(
+                    &g.ghost_id,
+                    imp.openness_score,
+                    imp.conscientiousness_score,
+                    imp.extraversion_score,
+                    imp.agreeableness_score,
+                    imp.neuroticism_score,
+                    imp.creativity_score,
+                    imp.overall_affinity,
+                    &snippets_json,
+                );
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "analyzed": true,
+        "activity": activity,
     }))
 }

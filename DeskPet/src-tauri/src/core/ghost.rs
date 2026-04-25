@@ -79,7 +79,11 @@ impl Ghost {
         };
         self.transfer_history.push(record);
 
-        self.clone()
+        let mut transferred = self.clone();
+
+        transferred.soul.sensibility.love_hate *= 0.8;
+
+        transferred
     }
 
     pub fn to_json(&self) -> Result<String, serde_json::Error> {

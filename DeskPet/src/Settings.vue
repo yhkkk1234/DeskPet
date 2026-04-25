@@ -8,22 +8,63 @@ import type { RendererType } from './composables/usePetRenderer'
 const aiEndpoint = ref('https://api.deepseek.com/v1')
 const aiApiKey = ref('')
 const aiModel = ref('deepseek-chat')
+const aiVisionModel = ref('')
+const aiImageModel = ref('')
+const aiImageGenEndpoint = ref('')
+const aiImageGenApiKey = ref('')
 
 const rendererType = ref<RendererType>('spritesheet')
 const spriteSrc = ref('/pet/pet_spritesheet.png')
 const spriteJsonSrc = ref('/pet/pet_spritesheet.json')
+const lottieSrc = ref('/pet/lottie/')
 
 const ghost = ref<any>(null)
 const saveLoadPath = ref('')
 const error = ref('')
 const success = ref('')
 
+const ttsEnabled = ref(false)
+const ttsRate = ref(1.0)
+const ttsPitch = ref(1.1)
+const ttsEngine = ref<'system' | 'edge'>('system')
+const ttsVoice = ref('zh-CN-XiaoxiaoNeural')
+
+const EDGE_VOICE_OPTIONS = [
+  { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女/活泼)' },
+  { id: 'zh-CN-XiaoyiNeural', label: '晓伊 (女/温柔)' },
+  { id: 'zh-CN-YunjianNeural', label: '云健 (男/阳光)' },
+  { id: 'zh-CN-YunxiNeural', label: '云希 (男/沉稳)' },
+  { id: 'zh-CN-YunxiaNeural', label: '云霞 (女/亲切)' },
+  { id: 'zh-CN-YunyangNeural', label: '云扬 (男/新闻)' },
+  { id: 'zh-CN-XiaochenNeural', label: '晓晨 (女/自然)' },
+  { id: 'zh-CN-XiaohanNeural', label: '晓涵 (女/甜美)' },
+]
+
 function loadLocalStorage() {
   rendererType.value = (localStorage.getItem('deskpet_renderer_type') as RendererType) || 'spritesheet'
   spriteSrc.value = localStorage.getItem('deskpet_sprite_src') || '/pet/pet_spritesheet.png'
   spriteJsonSrc.value = localStorage.getItem('deskpet_sprite_json_src') || '/pet/pet_spritesheet.json'
+  lottieSrc.value = localStorage.getItem('deskpet_lottie_src') || '/pet/lottie/'
   aiEndpoint.value = localStorage.getItem('deskpet_ai_endpoint') || 'https://api.deepseek.com/v1'
   aiModel.value = localStorage.getItem('deskpet_ai_model') || 'deepseek-chat'
+  aiVisionModel.value = localStorage.getItem('deskpet_ai_vision_model') || ''
+  aiImageModel.value = localStorage.getItem('deskpet_ai_image_model') || ''
+  aiImageGenEndpoint.value = localStorage.getItem('deskpet_ai_image_gen_endpoint') || ''
+  aiImageGenApiKey.value = localStorage.getItem('deskpet_ai_image_gen_api_key') || ''
+  ttsEnabled.value = localStorage.getItem('deskpet_tts_enabled') === 'true'
+  ttsRate.value = parseFloat(localStorage.getItem('deskpet_tts_rate') || '1.0')
+  ttsPitch.value = parseFloat(localStorage.getItem('deskpet_tts_pitch') || '1.1')
+  ttsEngine.value = (localStorage.getItem('deskpet_tts_engine') as 'system' | 'edge') || 'system'
+  ttsVoice.value = localStorage.getItem('deskpet_tts_voice') || 'zh-CN-XiaoxiaoNeural'
+  syncTTSToMain()
+}
+
+function syncTTSToMain() {
+  const evt = new CustomEvent('deskpet-tts-update', {
+    detail: { enabled: ttsEnabled.value, rate: ttsRate.value, pitch: ttsPitch.value, engine: ttsEngine.value, voice: ttsVoice.value },
+  })
+  window.dispatchEvent(evt)
+  emit('tts-updated', { enabled: ttsEnabled.value, rate: ttsRate.value, pitch: ttsPitch.value, engine: ttsEngine.value, voice: ttsVoice.value })
 }
 
 async function fetchGhostStatus() {
@@ -52,6 +93,27 @@ function showSuccess(msg: string) {
   setTimeout(() => { success.value = '' }, 3000)
 }
 
+function saveTTSSettings() {
+  localStorage.setItem('deskpet_tts_enabled', ttsEnabled.value.toString())
+  localStorage.setItem('deskpet_tts_rate', ttsRate.value.toString())
+  localStorage.setItem('deskpet_tts_pitch', ttsPitch.value.toString())
+  localStorage.setItem('deskpet_tts_engine', ttsEngine.value)
+  localStorage.setItem('deskpet_tts_voice', ttsVoice.value)
+  syncTTSToMain()
+  showSuccess('语音设置已保存')
+  emit('settings-updated', { section: 'tts' })
+}
+
+async function clearHistory() {
+  if (!ghost.value) return
+  try {
+    await invoke('clear_chat_history', { ghostId: ghost.value.ghostId })
+    showSuccess('聊天记录已清除')
+  } catch (e: any) {
+    showError('清除失败: ' + (e as string))
+  }
+}
+
 async function saveAIConfig() {
   if (!aiEndpoint.value.trim()) { showError('请填写 API Endpoint'); return }
   if (!aiApiKey.value.trim()) { showError('请填写 API Key'); return }
@@ -62,9 +124,17 @@ async function saveAIConfig() {
       endpoint: aiEndpoint.value.trim(),
       apiKey: aiApiKey.value.trim(),
       model: aiModel.value.trim(),
+      visionModel: aiVisionModel.value.trim() || null,
+      imageModel: aiImageModel.value.trim() || null,
+      imageGenEndpoint: aiImageGenEndpoint.value.trim() || null,
+      imageGenApiKey: aiImageGenApiKey.value.trim() || null,
     })
     localStorage.setItem('deskpet_ai_endpoint', aiEndpoint.value.trim())
     localStorage.setItem('deskpet_ai_model', aiModel.value.trim())
+    localStorage.setItem('deskpet_ai_vision_model', aiVisionModel.value.trim())
+    localStorage.setItem('deskpet_ai_image_model', aiImageModel.value.trim())
+    localStorage.setItem('deskpet_ai_image_gen_endpoint', aiImageGenEndpoint.value.trim())
+    localStorage.setItem('deskpet_ai_image_gen_api_key', aiImageGenApiKey.value.trim())
     showSuccess('AI 配置已保存')
     await emit('settings-updated', { section: 'ai' })
   } catch (e: any) {
@@ -81,6 +151,11 @@ function switchRenderer(type: RendererType) {
 function updateSpriteSrc() {
   localStorage.setItem('deskpet_sprite_src', spriteSrc.value)
   localStorage.setItem('deskpet_sprite_json_src', spriteJsonSrc.value)
+  emit('settings-updated', { section: 'renderer' })
+}
+
+function updateLottieSrc() {
+  localStorage.setItem('deskpet_lottie_src', lottieSrc.value)
   emit('settings-updated', { section: 'renderer' })
 }
 
@@ -170,6 +245,17 @@ async function closeWindow() {
             <input v-model="aiApiKey" class="config-input" type="password" placeholder="sk-..." />
             <label class="config-label">Model</label>
             <input v-model="aiModel" class="config-input" placeholder="deepseek-chat" />
+            <div class="config-divider"></div>
+            <label class="config-subtitle">扩展模型 (可选)</label>
+            <label class="config-label">Vision Model</label>
+            <input v-model="aiVisionModel" class="config-input" placeholder="gpt-4o / 留空则用主模型" />
+            <label class="config-label">Image Model</label>
+            <input v-model="aiImageModel" class="config-input" placeholder="dall-e-3 / 留空则不生图" />
+            <label class="config-label">生图 Endpoint</label>
+            <input v-model="aiImageGenEndpoint" class="config-input" placeholder="留空则用主Endpoint" />
+            <label class="config-label">生图 API Key</label>
+            <input v-model="aiImageGenApiKey" class="config-input" type="password" placeholder="留空则用主API Key" />
+            <p class="field-hint" v-if="aiImageGenEndpoint.trim()">独立生图路径已配置，将使用独立endpoint</p>
             <button @click="saveAIConfig" class="btn btn-generate btn-full">保存配置</button>
           </div>
         </div>
@@ -180,13 +266,18 @@ async function closeWindow() {
           <div class="renderer-buttons">
             <button @click="switchRenderer('css')" :class="['btn', rendererType === 'css' ? 'btn-ren-active' : 'btn-ren-off']">表情</button>
             <button @click="switchRenderer('spritesheet')" :class="['btn', rendererType === 'spritesheet' ? 'btn-ren-active' : 'btn-ren-off']">精灵图</button>
-            <button @click="switchRenderer('spine')" :class="['btn', rendererType === 'spine' ? 'btn-ren-active' : 'btn-ren-off']" disabled>Spine</button>
+            <button @click="switchRenderer('lottie')" :class="['btn', rendererType === 'lottie' ? 'btn-ren-active' : 'btn-ren-off']">Lottie</button>
           </div>
           <div v-if="rendererType === 'spritesheet'" class="sprite-config">
             <label class="config-label">精灵图路径</label>
             <input v-model="spriteSrc" class="config-input" placeholder="spritesheet.png" @change="updateSpriteSrc" />
             <label class="config-label">JSON 描述路径</label>
             <input v-model="spriteJsonSrc" class="config-input" placeholder="spritesheet.json" @change="updateSpriteSrc" />
+          </div>
+          <div v-if="rendererType === 'lottie'" class="sprite-config">
+            <label class="config-label">Lottie 动画目录</label>
+            <input v-model="lottieSrc" class="config-input" placeholder="/pet/lottie/" @change="updateLottieSrc" />
+            <p class="field-hint">目录下应包含: idle.json / happy.json / content.json / curious.json / cold.json / distant.json / speaking.json / surprise.json</p>
           </div>
         </div>
 
@@ -218,6 +309,48 @@ async function closeWindow() {
               <button @click="saveGhost" class="btn btn-save">保存灵魂</button>
               <button @click="loadGhost" class="btn btn-load">加载灵魂</button>
             </div>
+          </div>
+        </div>
+
+        <!-- TTS -->
+        <div v-if="ghost" class="settings-section">
+          <div class="settings-section-title">🔊 语音</div>
+          <div class="tts-panel">
+            <label class="tts-toggle">
+              <input type="checkbox" v-model="ttsEnabled" @change="saveTTSSettings" />
+              <span>开启语音朗读</span>
+            </label>
+            <div v-if="ttsEnabled" class="tts-rate-panel">
+              <label class="config-label">语音引擎</label>
+              <select v-model="ttsEngine" @change="saveTTSSettings" class="tts-select">
+                <option value="system">系统语音 (离线)</option>
+                <option value="edge">Edge TTS (在线/自然)</option>
+              </select>
+              <div v-if="ttsEngine === 'edge'" style="margin-top: 8px;">
+                <label class="config-label">语音选择</label>
+                <select v-model="ttsVoice" @change="saveTTSSettings" class="tts-select">
+                  <option v-for="v in EDGE_VOICE_OPTIONS" :key="v.id" :value="v.id">{{ v.label }}</option>
+                </select>
+              </div>
+              <label class="config-label" style="margin-top: 12px;">语速</label>
+              <input type="range" min="0.5" max="2.0" step="0.1" v-model.number="ttsRate" @change="saveTTSSettings" class="tts-slider" />
+              <span class="tts-rate-value">{{ ttsRate.toFixed(1) }}x</span>
+              <label class="config-label" style="margin-top: 12px;">音调</label>
+              <input type="range" min="0.5" max="2.0" step="0.1" v-model.number="ttsPitch" @change="saveTTSSettings" class="tts-slider" />
+              <span class="tts-rate-value">{{ ttsPitch.toFixed(1) }}</span>
+            </div>
+            <p class="tts-hint" v-if="ttsEnabled">
+              {{ ttsEngine === 'edge' ? '使用微软 Edge 免费在线语音，质量自然流畅' : '使用系统语音合成' }}
+            </p>
+          </div>
+        </div>
+
+        <!-- Chat History -->
+        <div v-if="ghost" class="settings-section">
+          <div class="settings-section-title">💬 聊天记录</div>
+          <div class="history-panel">
+            <button @click="clearHistory" class="btn btn-danger">清除所有聊天记录</button>
+            <p class="history-hint">清除后无法恢复，但不会影响记忆系统。</p>
           </div>
         </div>
 
@@ -413,6 +546,24 @@ async function closeWindow() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.field-hint {
+  font-size: 10px;
+  color: #4caf50;
+  margin: 0;
+}
+
+.config-divider {
+  height: 1px;
+  background: rgba(192, 132, 252, 0.15);
+  margin: 4px 0;
+}
+
+.config-subtitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: #c084fc;
 }
 
 .renderer-buttons {
@@ -611,5 +762,85 @@ async function closeWindow() {
   padding: 6px 8px;
   background: #e8f5e9;
   border-radius: 8px;
+}
+
+.tts-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tts-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tts-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #ff6b9d;
+}
+
+.tts-rate-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tts-slider {
+  flex: 1;
+  accent-color: #ff6b9d;
+}
+
+.tts-rate-value {
+  font-size: 12px;
+  color: #666;
+  min-width: 28px;
+}
+
+.tts-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #333;
+}
+
+.tts-hint {
+  font-size: 10px;
+  color: #999;
+  margin: 0;
+}
+
+.history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-hint {
+  font-size: 10px;
+  color: #999;
+  margin: 0;
+}
+
+.btn-danger {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.btn-danger:hover {
+  background: #ffcdd2;
 }
 </style>

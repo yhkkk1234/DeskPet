@@ -75,6 +75,8 @@ impl Curiosity {
         };
         self.level = level;
         self.intensity = intensity;
+        self.focus_weights = Self::derive_focus_weights(personality);
+        self.owner_curiosity = (personality.agreeableness * 0.4 + personality.neuroticism * 0.2).clamp(0.0, 1.0);
     }
 
     pub fn should_initiate_action(&self) -> bool {

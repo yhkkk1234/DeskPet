@@ -63,7 +63,7 @@ impl InnateTendency {
     pub fn apply_transfer_perturbation<R: Rng>(&mut self, rng: &mut R) {
         macro_rules! perturb {
             ($v:expr, $rng:expr) => {{
-                let delta: f64 = rng.gen_range(-0.08_f64..0.08_f64).abs();
+                let delta: f64 = $rng.gen_range(-0.08_f64..0.08_f64).abs();
                 if $rng.gen_bool(0.5) { ($v + delta).min(1.0) } else { ($v - delta).max(0.0) }
             }};
         }

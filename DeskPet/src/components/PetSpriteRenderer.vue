@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import type { AnimationState } from '../composables/useAnimation'
 import { STATE_TO_SPRITE_ROW, STATE_TO_FPS, STATE_TO_LOOP } from '../composables/useAnimation'
-import type { SpriteConfig, AsepriteJson, TagFrameRange } from '../composables/usePetRenderer'
+import type { SpriteConfig, TagFrameRange } from '../composables/usePetRenderer'
 
 const props = defineProps<{
   animationState: AnimationState
@@ -39,7 +39,6 @@ function getFps(): number {
   const range = getTagRange()
   if (!range) return 4
 
-  const totalDuration = range.frameCount
   let sumMs = 0
   let count = 0
   for (let i = range.from; i <= range.to; i++) {
@@ -70,7 +69,7 @@ function getFrameCount(): number {
   return props.config.cols
 }
 
-function getSpriteX(frameIndex: number): number {
+function getSpriteX(_frameIndex: number): number {
   const range = getTagRange()
   if (range) {
     const absoluteIndex = range.from + currentFrame
@@ -79,7 +78,7 @@ function getSpriteX(frameIndex: number): number {
   return (currentFrame % props.config.cols) * props.config.frameWidth
 }
 
-function getSpriteY(frameIndex: number): number {
+function getSpriteY(_frameIndex: number): number {
   const range = getTagRange()
   if (range) {
     const absoluteIndex = range.from + currentFrame
@@ -191,7 +190,7 @@ watch(() => props.animationState, (newState) => {
   previousState = newState
 })
 
-function crossfadeToState(newState: AnimationState) {
+function crossfadeToState(_state: AnimationState) {
   if (!canvas.value || !image.value) return
 
   const snapshotCanvas = document.createElement('canvas')

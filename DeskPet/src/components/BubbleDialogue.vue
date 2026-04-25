@@ -8,6 +8,8 @@ const props = defineProps<{
   petName: string
   chatLoading: boolean
   loveHate: number
+  placeholder?: string
+  allowEmptySend?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -24,8 +26,9 @@ let typingFrame = 0
 let typingInterval: ReturnType<typeof setInterval> | null = null
 
 function handleSend() {
+  if (props.chatLoading) return
   const msg = inputValue.value.trim()
-  if (!msg || props.chatLoading) return
+  if (!msg && !props.allowEmptySend) return
   inputValue.value = ''
   emit('send', msg)
 }
@@ -96,6 +99,7 @@ const typingText = computed(() => typingDots.value.join(' '))
           :role="msg.role"
           :content="msg.content"
           :pet-name="petName"
+          :image-base64="msg.imageBase64"
           :index="i"
         />
       </transition-group>
@@ -112,7 +116,7 @@ const typingText = computed(() => typingDots.value.join(' '))
         ref="inputRef"
         v-model="inputValue"
         class="bubble-input"
-        placeholder="跟桌宠说说..."
+        :placeholder="placeholder || '跟桌宠说说...'"
         @keydown="handleKeydown"
         @focus="handleFocus"
         @blur="handleBlur"
