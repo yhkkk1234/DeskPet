@@ -1,9 +1,9 @@
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::core::ghost::Ghost;
 use crate::core::soul::emotional_event::{EmotionalEvent, EmotionalEventType};
-use crate::core::prompt::prompt_builder::PromptBuilder;
+use crate::core::prompt::prompt_builder::{AnsweringMode, PromptBuilder};
 use crate::core::prompt::token_budget::TokenBudget;
 use crate::data::database::Database;
 use crate::services::ai_service::{AIService, AIProviderConfig, ChatMessage};
@@ -19,13 +19,15 @@ pub struct AppState {
     pub ai_config: Mutex<Option<AIProviderConfig>>,
     pub timeline: Mutex<TimelineState>,
     pub screenshot_data: Mutex<Option<String>>,
+    pub answering_mode: Mutex<AnsweringMode>,
 }
 
 #[tauri::command]
 pub async fn chat_with_pet(
     message: String,
     state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
     let ghost = {
         let locked = state.ghost.lock().map_err(|e| e.to_string())?;
         locked.as_ref().ok_or("没有加载 Ghost，请先生成桌宠灵魂")?.clone()
@@ -67,8 +69,15 @@ pub async fn chat_with_pet(
     };
 
     let ai_service = AIService::new(ai_config);
+    let app_handle_clone = app_handle.clone();
 
-    let raw_response = ai_service.chat(&system_prompt, &messages).await?;
+    let raw_response = ai_service.chat_streaming(
+        &system_prompt,
+        &messages,
+        |token| {
+            let _ = app_handle_clone.emit("chat:token", token);
+        },
+    ).await?;
 
     // 检查 AI 是否请求生成图像：格式 [GENERATE_IMAGE: 描述]
     let mut generated_image = None;
@@ -95,6 +104,15 @@ pub async fn chat_with_pet(
     } else {
         raw_response.clone()
     };
+
+    // 发送 chat:complete — 前端显示完整回复
+    let mut complete_payload = serde_json::json!({
+        "response": response,
+    });
+    if let Some(ref img) = generated_image {
+        complete_payload["generatedImage"] = serde_json::Value::String(img.clone());
+    }
+    let _ = app_handle.emit("chat:complete", complete_payload);
 
     let event_type_str: String;
     let sentiment_love_hate: f64;
@@ -203,7 +221,6 @@ pub async fn chat_with_pet(
                 response_entities.as_deref(),
             );
 
-            // P0-2: 经验使用检测 — 检查AI回复是否涉及已有经验，若涉及则增加熟练度
             if let Ok(experiences) = db.get_experiences(&ghost_snapshot.ghost_id) {
                 let response_lower = response.to_lowercase();
                 for exp in &experiences {
@@ -216,6 +233,21 @@ pub async fn chat_with_pet(
             }
         }
     }
+
+    // 发送 chat:post-processed — 前端更新 ghost 状态、释放 chatLoading
+    let _ = app_handle.emit("chat:post-processed", serde_json::json!({
+        "loveHate": ghost_snapshot.soul.sensibility.love_hate,
+        "baseline": ghost_snapshot.soul.sensibility.baseline,
+        "personality": ghost_snapshot.soul.innate_tendency.self_dims,
+        "sentiment": {
+            "eventType": event_type_str,
+            "loveHateHint": sentiment_love_hate,
+        },
+        "impression": {
+            "overallAffinity": ghost_snapshot.soul.impression.overall_affinity,
+            "latestSnippet": ghost_snapshot.soul.impression.get_latest_snippet(),
+        },
+    }));
 
     let should_compress = {
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
@@ -321,27 +353,7 @@ pub async fn chat_with_pet(
         timeline.record_interaction();
     }
 
-    let mut result = serde_json::json!({
-        "response": response,
-        "loveHate": ghost_snapshot.soul.sensibility.love_hate,
-        "baseline": ghost_snapshot.soul.sensibility.baseline,
-        "personality": ghost_snapshot.soul.innate_tendency.self_dims,
-        "sentiment": {
-            "eventType": event_type_str,
-            "loveHateHint": sentiment_love_hate,
-        },
-        "impression": {
-            "overallAffinity": ghost_snapshot.soul.impression.overall_affinity,
-            "latestSnippet": ghost_snapshot.soul.impression.get_latest_snippet(),
-        },
-    });
-
-    // 如果生成了图像，添加到返回结果
-    if let Some(ref img) = generated_image {
-        result["generatedImage"] = serde_json::Value::String(img.clone());
-    }
-
-    Ok(result)
+    Ok(())
 }
 
 #[tauri::command]
@@ -401,6 +413,32 @@ pub fn init_database(path: String, state: State<'_, AppState>) -> Result<(), Str
     let mut locked = state.db.lock().map_err(|e| e.to_string())?;
     *locked = Some(db);
     Ok(())
+}
+
+#[tauri::command]
+pub fn set_answering_mode(
+    mode: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let new_mode = match mode.as_str() {
+        "Companion" => AnsweringMode::Companion,
+        "Assistant" => AnsweringMode::Assistant,
+        _ => return Err(format!(
+            "Unknown answering mode: {}. Use Companion or Assistant",
+            mode
+        )),
+    };
+
+    let mut locked = state.answering_mode.lock().map_err(|e| e.to_string())?;
+    *locked = new_mode.clone();
+
+    Ok(new_mode.to_string())
+}
+
+#[tauri::command]
+pub fn get_answering_mode(state: State<'_, AppState>) -> Result<String, String> {
+    let locked = state.answering_mode.lock().map_err(|e| e.to_string())?;
+    Ok(locked.to_string())
 }
 
 #[tauri::command]
@@ -539,11 +577,14 @@ fn build_system_prompt(ghost: &Ghost, state: &State<'_, AppState>) -> Result<Str
         vec![]
     };
 
+    let answering_mode = state.answering_mode.lock().map_err(|e| e.to_string())?.clone();
+
     Ok(PromptBuilder::build_system_prompt(
         &ghost.soul,
         &memories,
         &experiences,
         &ghost.name,
+        &answering_mode,
     ))
 }
 

@@ -7,15 +7,19 @@ const props = defineProps<{
   messages: ChatMessage[]
   petName: string
   chatLoading: boolean
+  streamingContent: string
+  responseComplete: boolean
   loveHate: number
   placeholder?: string
   allowEmptySend?: boolean
+  answeringMode?: 'Companion' | 'Assistant'
 }>()
 
 const emit = defineEmits<{
   send: [message: string]
   inputFocus: []
   inputBlur: []
+  toggleMode: []
 }>()
 
 const inputValue = ref('')
@@ -52,13 +56,17 @@ function handleBlur() {
   emit('inputBlur')
 }
 
-watch(() => props.messages.length, () => {
+function scrollToBottom() {
   nextTick(() => {
     if (bubbleArea.value) {
       bubbleArea.value.scrollTop = bubbleArea.value.scrollHeight
     }
   })
-})
+}
+
+watch(() => props.messages.length, scrollToBottom)
+
+watch(() => props.streamingContent, scrollToBottom)
 
 watch(() => props.chatLoading, (loading) => {
   if (loading) {
@@ -103,7 +111,16 @@ const typingText = computed(() => typingDots.value.join(' '))
           :index="i"
         />
       </transition-group>
-      <div v-if="chatLoading" class="bubble-wrapper bubble-pet bubble-enter">
+      <!-- 流式回复：正在生成中 -->
+      <div v-if="streamingContent" class="bubble-wrapper bubble-pet bubble-enter">
+        <span class="bubble-sender sender-pet">{{ petName }}</span>
+        <div class="bubble-content bubble-streaming">
+          <span class="bubble-text">{{ streamingContent }}<span class="streaming-cursor">|</span></span>
+        </div>
+        <div class="bubble-tail bubble-tail-left"></div>
+      </div>
+      <!-- 打字动画：加载中但尚未收到 token -->
+      <div v-if="chatLoading && !streamingContent && !responseComplete" class="bubble-wrapper bubble-pet bubble-enter">
         <span class="bubble-sender sender-pet">{{ petName }}</span>
         <div class="bubble-content pet-typing">
           <span class="typing-indicator">{{ typingText }}</span>
@@ -111,8 +128,11 @@ const typingText = computed(() => typingDots.value.join(' '))
         <div class="bubble-tail bubble-tail-left"></div>
       </div>
     </div>
-    <div class="bubble-input-area">
-      <input
+      <div class="bubble-input-area">
+        <button class="mode-toggle-btn" :class="'mode-' + (answeringMode || 'Companion').toLowerCase()" @click="$emit('toggleMode')" :title="(answeringMode || 'Companion') === 'Companion' ? '陪伴模式' : '助力模式'">
+          {{ (answeringMode || 'Companion') === 'Companion' ? '♥' : '✦' }}
+        </button>
+        <input
         ref="inputRef"
         v-model="inputValue"
         class="bubble-input"
@@ -191,6 +211,46 @@ const typingText = computed(() => typingDots.value.join(' '))
   border-top: 1px solid rgba(0, 0, 0, 0.04);
 }
 
+.mode-toggle-btn {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #ddd;
+  border-radius: 10px;
+  background: #fafafa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.mode-toggle-btn:hover {
+  transform: scale(1.1);
+}
+
+.mode-companion {
+  color: #ff9800;
+  border-color: rgba(255, 152, 0, 0.3);
+  background: rgba(255, 152, 0, 0.05);
+}
+
+.mode-assistant {
+  color: #2196f3;
+  border-color: rgba(33, 150, 243, 0.3);
+  background: rgba(33, 150, 243, 0.05);
+}
+
+.mode-companion:hover {
+  background: rgba(255, 152, 0, 0.12);
+}
+
+.mode-assistant:hover {
+  background: rgba(33, 150, 243, 0.12);
+}
+
 .bubble-input {
   flex: 1;
   padding: 7px 12px;
@@ -252,6 +312,31 @@ const typingText = computed(() => typingDots.value.join(' '))
 @keyframes typingPulse {
   0%, 100% { opacity: 0.6; }
   50% { opacity: 1; }
+}
+
+.bubble-streaming {
+  background: #fff !important;
+  border: 2.5px solid #333 !important;
+  border-radius: 16px 16px 16px 4px !important;
+  box-shadow: 3px 3px 0 #333 !important;
+  padding: 8px 14px !important;
+  animation: streamPulse 2s ease-in-out infinite;
+}
+
+@keyframes streamPulse {
+  0%, 100% { box-shadow: 3px 3px 0 #333; }
+  50% { box-shadow: 3px 3px 0 #ff6b9d; }
+}
+
+.streaming-cursor {
+  animation: cursorBlink 0.6s step-end infinite;
+  color: #ff6b9d;
+  font-weight: bold;
+  margin-left: 1px;
+}
+
+@keyframes cursorBlink {
+  50% { opacity: 0; }
 }
 
 .bubble-fade-enter-active {

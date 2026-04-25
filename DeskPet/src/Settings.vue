@@ -28,6 +28,7 @@ const ttsRate = ref(1.0)
 const ttsPitch = ref(1.1)
 const ttsEngine = ref<'system' | 'edge'>('system')
 const ttsVoice = ref('zh-CN-XiaoxiaoNeural')
+const answeringMode = ref<'Companion' | 'Assistant'>('Companion')
 
 const EDGE_VOICE_OPTIONS = [
   { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女/活泼)' },
@@ -40,7 +41,7 @@ const EDGE_VOICE_OPTIONS = [
   { id: 'zh-CN-XiaohanNeural', label: '晓涵 (女/甜美)' },
 ]
 
-function loadLocalStorage() {
+async function loadLocalStorage() {
   rendererType.value = (localStorage.getItem('deskpet_renderer_type') as RendererType) || 'spritesheet'
   spriteSrc.value = localStorage.getItem('deskpet_sprite_src') || '/pet/pet_spritesheet.png'
   spriteJsonSrc.value = localStorage.getItem('deskpet_sprite_json_src') || '/pet/pet_spritesheet.json'
@@ -56,15 +57,17 @@ function loadLocalStorage() {
   ttsPitch.value = parseFloat(localStorage.getItem('deskpet_tts_pitch') || '1.1')
   ttsEngine.value = (localStorage.getItem('deskpet_tts_engine') as 'system' | 'edge') || 'system'
   ttsVoice.value = localStorage.getItem('deskpet_tts_voice') || 'zh-CN-XiaoxiaoNeural'
-  syncTTSToMain()
+  answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
+  await syncTTSToMain()
 }
 
-function syncTTSToMain() {
-  const evt = new CustomEvent('deskpet-tts-update', {
-    detail: { enabled: ttsEnabled.value, rate: ttsRate.value, pitch: ttsPitch.value, engine: ttsEngine.value, voice: ttsVoice.value },
-  })
-  window.dispatchEvent(evt)
-  emit('tts-updated', { enabled: ttsEnabled.value, rate: ttsRate.value, pitch: ttsPitch.value, engine: ttsEngine.value, voice: ttsVoice.value })
+onMounted(async () => {
+  await loadLocalStorage()
+  fetchGhostStatus()
+})
+
+async function syncTTSToMain() {
+  await emit('tts-updated', { enabled: ttsEnabled.value, rate: ttsRate.value, pitch: ttsPitch.value, engine: ttsEngine.value, voice: ttsVoice.value })
 }
 
 async function fetchGhostStatus() {
@@ -75,11 +78,6 @@ async function fetchGhostStatus() {
     // 没有 ghost 也没关系
   }
 }
-
-onMounted(() => {
-  loadLocalStorage()
-  fetchGhostStatus()
-})
 
 function showError(msg: string) {
   error.value = msg
@@ -93,13 +91,13 @@ function showSuccess(msg: string) {
   setTimeout(() => { success.value = '' }, 3000)
 }
 
-function saveTTSSettings() {
+async function saveTTSSettings() {
   localStorage.setItem('deskpet_tts_enabled', ttsEnabled.value.toString())
   localStorage.setItem('deskpet_tts_rate', ttsRate.value.toString())
   localStorage.setItem('deskpet_tts_pitch', ttsPitch.value.toString())
   localStorage.setItem('deskpet_tts_engine', ttsEngine.value)
   localStorage.setItem('deskpet_tts_voice', ttsVoice.value)
-  syncTTSToMain()
+  await syncTTSToMain()
   showSuccess('语音设置已保存')
   emit('settings-updated', { section: 'tts' })
 }
@@ -220,6 +218,18 @@ async function requestTransfer() {
   await closeWindow()
 }
 
+async function setAnsweringMode(mode: 'Companion' | 'Assistant') {
+  answeringMode.value = mode
+  localStorage.setItem('deskpet_answering_mode', mode)
+  try {
+    await invoke('set_answering_mode', { mode })
+    showSuccess('回应风格已设置为 ' + (mode === 'Companion' ? '陪伴' : '助力'))
+    await emit('settings-updated', { section: 'answering' })
+  } catch (e: any) {
+    showError('设置失败: ' + e)
+  }
+}
+
 async function closeWindow() {
   const win = getCurrentWindow()
   await win.hide()
@@ -297,6 +307,16 @@ async function closeWindow() {
               主动探索一下
             </button>
             <p class="curiosity-hint" v-if="ghost.curiosityLevel === 'Enhanced'">增强模式会使用更多AI调用，请留意。</p>
+          </div>
+          <div class="answering-panel">
+            <div class="curiosity-status">
+              回应风格：<span :class="answeringMode === 'Companion' ? 'answering-companion' : 'answering-assistant'">{{ answeringMode === 'Companion' ? '陪伴' : '助力' }}</span>
+            </div>
+            <div class="curiosity-levels">
+              <button @click="setAnsweringMode('Companion')" :class="['btn', answeringMode === 'Companion' ? 'btn-cur-active' : 'btn-cur-off']">陪伴</button>
+              <button @click="setAnsweringMode('Assistant')" :class="['btn', answeringMode === 'Assistant' ? 'btn-cur-active' : 'btn-cur-off']">助力</button>
+            </div>
+            <p class="curiosity-hint">{{ answeringMode === 'Companion' ? '人格驱动，心情决定回答意愿' : '优先回答，截图对话自动启用' }}</p>
           </div>
         </div>
 
@@ -619,6 +639,17 @@ async function closeWindow() {
 .curiosity-off { color: #aaa; }
 .curiosity-normal { color: #4caf50; }
 .curiosity-enhanced { color: #7c4dff; font-weight: 700; }
+.answering-companion { color: #ff9800; font-weight: 600; }
+.answering-assistant { color: #2196f3; font-weight: 600; }
+.answering-panel {
+  padding: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
 
 .curiosity-levels {
   display: flex;

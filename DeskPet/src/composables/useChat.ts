@@ -194,6 +194,7 @@ export function useChat() {
     pushUserImageMessage,
     pushSystemMessage,
     pushPetMessage,
+    pushPetImageMessage,
     clearMessages,
     clearAllMessages,
     loadHistory,

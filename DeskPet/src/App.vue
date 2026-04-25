@@ -44,9 +44,12 @@ const showPersonality = ref(false)
 const { chatMessages, chatLoading, ghostId, ttsEnabled, ttsRate, ttsPitch, ttsEngine, ttsVoice, pushUserMessage, pushUserImageMessage, pushSystemMessage, pushPetMessage, pushPetImageMessage, clearMessages, loadHistory } = useChat()
 const { bubblesVisible, inputVisible, showInput, hideBubbles, toggleInput, resetHideTimer, onNewMessage, onUserActivity, bindChatLoading, onInputFocus, onInputBlur } = useBubbleTimer()
 const { currentAnimationState, moodConfig, petX, petY, isFlipped, movementStyle, updateMood, setPersonality, startIdleLoop, stopIdleLoop, playOneShot } = useAnimation()
-const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, setLottieConfig, parseAsepriteJson } = usePetRenderer()
+const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
 bindChatLoading(chatLoading)
+
+const streamingContent = ref('')
+const responseComplete = ref(false)
 
 const screenshotScreenRegion = ref({ x: 0, y: 0, width: 0, height: 0 })
 const screenshotAnalysisLoading = ref(false)
@@ -54,6 +57,8 @@ const pendingScreenShotBase64 = ref<string | null>(null)
 const visionResult = ref('')
 const showEnhancedPrivacyDialog = ref(false)
 const enhancedPrivacyAccepted = ref(localStorage.getItem('deskpet_enhanced_privacy') === 'true')
+const answeringMode = ref<'Companion' | 'Assistant'>('Companion')
+const previousAnsweringMode = ref<'Companion' | 'Assistant' | null>(null)
 
 ttsEnabled.value = localStorage.getItem('deskpet_tts_enabled') === 'true'
 ttsRate.value = parseFloat(localStorage.getItem('deskpet_tts_rate') || '1.0')
@@ -342,6 +347,13 @@ onMounted(async () => {
     console.warn('数据库初始化:', e)
   }
 
+  answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
+  try {
+    await invoke('set_answering_mode', { mode: answeringMode.value })
+  } catch (e) {
+    console.warn('同步回应模式失败:', e)
+  }
+
   tickInterval = setInterval(tickGhost, 5000)
   autoSaveInterval = setInterval(autoSaveGhost, 120000)
 
@@ -380,6 +392,8 @@ onMounted(async () => {
       } catch (e) {
         console.error('Failed to refresh ghost status:', e)
       }
+    } else if (section === 'answering') {
+      answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
     }
   })
 
@@ -395,29 +409,67 @@ onMounted(async () => {
 
   await listen('screenshot-cancelled', () => {
     screenshotAnalysisLoading.value = false
+    restoreAnsweringMode()
   })
 
-  window.addEventListener('deskpet-tts-update', ((e: CustomEvent) => {
-    const { enabled, rate, pitch, engine, voice } = e.detail
-    ttsEnabled.value = enabled
-    ttsRate.value = rate ?? 1.0
-    ttsPitch.value = pitch ?? 1.1
-    ttsEngine.value = engine ?? 'system'
-    ttsVoice.value = voice ?? 'zh-CN-XiaoxiaoNeural'
-    localStorage.setItem('deskpet_tts_enabled', enabled.toString())
-    localStorage.setItem('deskpet_tts_rate', (rate ?? 1.0).toString())
-    localStorage.setItem('deskpet_tts_pitch', (pitch ?? 1.1).toString())
-    localStorage.setItem('deskpet_tts_engine', engine ?? 'system')
-    localStorage.setItem('deskpet_tts_voice', voice ?? 'zh-CN-XiaoxiaoNeural')
-  }) as EventListener)
-
-  listen('tts-updated', (event: any) => {
+  await listen('tts-updated', (event: any) => {
     const { enabled, rate, pitch, engine, voice } = event.payload
     ttsEnabled.value = enabled
     ttsRate.value = rate ?? 1.0
     ttsPitch.value = pitch ?? 1.1
     ttsEngine.value = engine ?? 'system'
     ttsVoice.value = voice ?? 'zh-CN-XiaoxiaoNeural'
+  })
+
+  // 流式对话事件监听
+  listen('chat:token', (event: any) => {
+    streamingContent.value += event.payload as string
+  })
+
+  listen('chat:complete', (event: any) => {
+    const data = event.payload as {
+      response: string
+      generatedImage?: string
+    }
+    pushPetMessage(data.response)
+    if (data.generatedImage) {
+      pushPetImageMessage('[图像已生成]', data.generatedImage)
+    }
+    streamingContent.value = ''
+    responseComplete.value = true
+  })
+
+  listen('chat:post-processed', (event: any) => {
+    const data = event.payload as {
+      loveHate: number
+      baseline: number
+      personality: Record<string, number>
+      sentiment: {
+        eventType: string
+        loveHateHint: number
+      }
+      impression: {
+        overallAffinity: number
+        latestSnippet: string | null
+      }
+    }
+    if (ghost.value) {
+      ghost.value.loveHate = data.loveHate
+      ghost.value.baseline = data.baseline
+      updateMood(ghost.value.loveHate, ghost.value.curiosityLevel)
+      if (data.sentiment && data.sentiment.loveHateHint !== 0) {
+        const hint = data.sentiment.loveHateHint > 0
+          ? `(感到${data.sentiment.loveHateHint > 2 ? '很开心' : '有些开心'})`
+          : `(感到${data.sentiment.loveHateHint < -2 ? '很不高兴' : '有点不高兴'})`
+        pushSystemMessage(`情感: ${data.sentiment.eventType} ${hint}`)
+      }
+      if (data.impression) {
+        ghost.value.impression.overallAffinity = data.impression.overallAffinity
+      }
+    }
+    chatLoading.value = false
+    responseComplete.value = false
+    resetHideTimer()
   })
 
   document.addEventListener('keydown', handleEscKey)
@@ -471,53 +523,20 @@ async function handleSendMessage(message: string) {
 
   pushUserMessage(message)
   chatLoading.value = true
+  streamingContent.value = ''
+  responseComplete.value = false
   onNewMessage()
 
   try {
-    const result = await invoke<{
-      response: string
-      loveHate: number
-      baseline: number
-      personality: Record<string, number>
-      sentiment: {
-        eventType: string
-        loveHateHint: number
-      }
-      impression: {
-        overallAffinity: number
-        latestSnippet: string | null
-      }
-      generatedImage?: string
-    }>('chat_with_pet', { message })
-
-    pushPetMessage(result.response)
-
-    if (result.generatedImage) {
-      pushPetImageMessage('[图像已生成]', result.generatedImage)
-    }
-
-    if (ghost.value) {
-      ghost.value.loveHate = result.loveHate
-      ghost.value.baseline = result.baseline
-      updateMood(ghost.value.loveHate, ghost.value.curiosityLevel)
-      if (result.sentiment && result.sentiment.loveHateHint !== 0) {
-        const hint = result.sentiment.loveHateHint > 0
-          ? `(感到${result.sentiment.loveHateHint > 2 ? '很开心' : '有些开心'})`
-          : `(感到${result.sentiment.loveHateHint < -2 ? '很不高兴' : '有点不高兴'})`
-        pushSystemMessage(`情感: ${result.sentiment.eventType} ${hint}`)
-      }
-      if (result.impression && result.impression.latestSnippet) {
-        ghost.value.impression.overallAffinity = result.impression.overallAffinity
-      }
-    }
+    await invoke('chat_with_pet', { message })
     onNewMessage()
     screenshotBounce.value = true
     setTimeout(() => { screenshotBounce.value = false }, 500)
   } catch (e: any) {
     pushSystemMessage(`发送失败: ${e}`)
     onNewMessage()
-  } finally {
     chatLoading.value = false
+    responseComplete.value = false
     resetHideTimer()
   }
 }
@@ -567,9 +586,15 @@ async function analyzeScreenshot(base64: string) {
   movePetToScreenshotRegion()
   playOneShot('surprise', 400)
 
-  pushUserImageMessage('📷 截图', base64)
+  pushUserImageMessage('✓ 截图', base64)
   onNewMessage()
   screenshotAnalysisLoading.value = false
+
+  if (answeringMode.value === 'Companion') {
+    previousAnsweringMode.value = 'Companion'
+    answeringMode.value = 'Assistant'
+    invoke('set_answering_mode', { mode: 'Assistant' }).catch(() => {})
+  }
 
   pendingScreenShotBase64.value = base64
   showInput()
@@ -592,6 +617,26 @@ async function executeScreenShotAnalysis(base64: string, question: string) {
   } finally {
     screenshotAnalysisLoading.value = false
     pendingScreenShotBase64.value = null
+    restoreAnsweringMode()
+  }
+}
+
+function restoreAnsweringMode() {
+  if (previousAnsweringMode.value) {
+    answeringMode.value = previousAnsweringMode.value
+    invoke('set_answering_mode', { mode: previousAnsweringMode.value }).catch(() => {})
+    previousAnsweringMode.value = null
+  }
+}
+
+async function toggleAnsweringMode() {
+  const newMode = answeringMode.value === 'Companion' ? 'Assistant' : 'Companion';
+  answeringMode.value = newMode
+  localStorage.setItem('deskpet_answering_mode', newMode)
+  try {
+    await invoke('set_answering_mode', { mode: newMode })
+  } catch (e) {
+    console.warn('切换回应模式失败:', e)
   }
 }
 
@@ -792,12 +837,16 @@ const transferParticles = computed(() => {
           :messages="chatMessages"
           :pet-name="petName"
           :chat-loading="chatLoading"
+          :streaming-content="streamingContent"
+          :response-complete="responseComplete"
           :love-hate="ghost?.loveHate ?? 0"
           :placeholder="screenShotPlaceholder"
           :allow-empty-send="!!pendingScreenShotBase64"
+          :answering-mode="answeringMode"
           @send="handleSendMessage"
           @input-focus="onInputFocus"
           @input-blur="onInputBlur"
+          @toggle-mode="toggleAnsweringMode"
         />
       </div>
     </transition>

@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-export type RendererType = 'css' | 'spritesheet' | 'lottie'
+export type RendererType = 'css' | 'spritesheet' | 'lottie' | 'spine'
 
 export interface SpriteConfig {
   src: string

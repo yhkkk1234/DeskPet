@@ -1,6 +1,7 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tokio_stream::StreamExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -92,6 +93,96 @@ impl AIService {
                 "AI 响应格式异常，未找到 content 字段\n响应: {}",
                 truncate_str(&response_text, 500)
             ))
+    }
+
+    pub async fn chat_streaming<F>(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+        on_token: F,
+    ) -> Result<String, String>
+    where
+        F: Fn(&str),
+    {
+        if self.config.api_key.trim().is_empty() {
+            return Err("API Key 为空，请在「配置 AI 接口」中填写您的 API Key".into());
+        }
+
+        let mut body = serde_json::json!({
+            "model": self.config.model,
+            "messages": [],
+            "stream": true,
+        });
+
+        body["messages"].as_array_mut().unwrap().push(serde_json::json!({
+            "role": "system",
+            "content": system_prompt,
+        }));
+
+        for msg in messages {
+            body["messages"].as_array_mut().unwrap().push(serde_json::json!({
+                "role": msg.role,
+                "content": msg.content,
+            }));
+        }
+
+        let url = format!("{}/chat/completions", self.config.endpoint.trim_end_matches('/'));
+
+        let response = self.client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.config.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("流式请求失败: {} (URL: {})", e, url))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let response_text = response.text().await
+                .map_err(|e| format!("读取响应失败: {}", e))?;
+            let error_detail = extract_error_message(&response_text);
+            return Err(format!(
+                "AI API 流式错误 [{}]: {} (URL: {})",
+                status.as_u16(),
+                error_detail,
+                url
+            ));
+        }
+
+        let mut stream = response.bytes_stream();
+        let mut full_response = String::new();
+        let mut buffer = String::new();
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| format!("读取流失败: {}", e))?;
+            let chunk_str = String::from_utf8_lossy(&chunk);
+            buffer.push_str(&chunk_str);
+
+            loop {
+                if let Some(line_end) = buffer.find('\n') {
+                    let line = buffer[..line_end].trim().to_string();
+                    buffer = buffer[line_end + 1..].to_string();
+
+                    if line.starts_with("data: ") {
+                        let data = &line[6..];
+                        if data == "[DONE]" {
+                            return Ok(full_response);
+                        }
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                            if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                                on_token(content);
+                                full_response.push_str(content);
+                            }
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        Ok(full_response)
     }
 
     pub async fn chat_with_image(&self, system_prompt: &str, image_path: &str, question: &str, messages: &[ChatMessage]) -> Result<String, String> {

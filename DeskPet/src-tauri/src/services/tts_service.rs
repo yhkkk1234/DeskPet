@@ -1,10 +1,7 @@
-use reqwest::Client;
+use once_cell::sync::OnceCell;
 
-pub struct EdgeTTS {
-    client: Client,
-}
+pub struct EdgeTTS;
 
-/// Available Chinese voices on Microsoft Edge TTS (free)
 pub const EDGE_VOICES: &[(&str, &str)] = &[
     ("zh-CN-XiaoxiaoNeural", "晓晓 (女/活泼)"),
     ("zh-CN-XiaoyiNeural", "晓伊 (女/温柔)"),
@@ -16,55 +13,39 @@ pub const EDGE_VOICES: &[(&str, &str)] = &[
     ("zh-CN-XiaohanNeural", "晓涵 (女/甜美)"),
 ];
 
+static CLIENT: OnceCell<edge_tts_rust::EdgeTtsClient> = OnceCell::new();
+
+fn get_client() -> Result<&'static edge_tts_rust::EdgeTtsClient, String> {
+    CLIENT.get_or_try_init(|| {
+        edge_tts_rust::EdgeTtsClient::new()
+            .map_err(|e| format!("Edge TTS 初始化失败: {}", e))
+    })
+}
+
 impl EdgeTTS {
     pub fn new() -> Self {
-        Self {
-            client: Client::new(),
-        }
+        Self
     }
 
-    /// Synthesize speech and return audio bytes (MP3 format)
     pub async fn synthesize(
         &self,
         text: &str,
         voice: &str,
     ) -> Result<Vec<u8>, String> {
-        let endpoint = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1\
-            ?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+        let client = get_client()?;
 
-        let ssml = format!(
-            "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'>\
-             <voice name='{}'>{}</voice></speak>",
-            voice, escape_xml(text)
-        );
+        let options = edge_tts_rust::SpeakOptions {
+            voice: voice.to_string(),
+            ..Default::default()
+        };
 
-        let response = self.client
-            .post(endpoint)
-            .header("Content-Type", "application/ssml+xml")
-            .header("X-Microsoft-OutputFormat", "audio-24khz-48kbitrate-mono-mp3")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .body(ssml)
-            .send()
-            .await
-            .map_err(|e| format!("Edge TTS 请求失败: {}", e))?;
+        let result = client.synthesize(text, options).await
+            .map_err(|e| format!("Edge TTS 合成失败: {}", e))?;
 
-        if !response.status().is_success() {
-            return Err(format!("Edge TTS HTTP {}", response.status()));
+        if result.audio.is_empty() {
+            return Err("Edge TTS 未返回音频数据".to_string());
         }
 
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Edge TTS 读取响应失败: {}", e))?;
-
-        Ok(bytes.to_vec())
+        Ok(result.audio)
     }
-}
-
-fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&apos;")
 }

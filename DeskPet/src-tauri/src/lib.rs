@@ -6,6 +6,7 @@ pub mod data;
 use std::sync::Mutex;
 use tauri::Manager;
 use commands::chat_commands::AppState;
+use core::prompt::prompt_builder::AnsweringMode;
 use services::timeline_service::TimelineState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -16,6 +17,7 @@ pub fn run() {
         ai_config: Mutex::new(None),
         timeline: Mutex::new(TimelineState::default()),
         screenshot_data: Mutex::new(None),
+        answering_mode: Mutex::new(AnsweringMode::Companion),
     };
 
     tauri::Builder::default()
@@ -46,9 +48,11 @@ pub fn run() {
             commands::chat_commands::record_interaction,
             commands::chat_commands::save_chat_message,
             commands::chat_commands::load_chat_history,
-             commands::chat_commands::clear_chat_history,
+            commands::chat_commands::clear_chat_history,
             commands::chat_commands::speak_edge_tts,
             commands::chat_commands::generate_image,
+            commands::chat_commands::set_answering_mode,
+            commands::chat_commands::get_answering_mode,
             commands::screenshot_commands::capture_screenshot,
             commands::screenshot_commands::capture_region,
             commands::screenshot_commands::analyze_screenshot,
