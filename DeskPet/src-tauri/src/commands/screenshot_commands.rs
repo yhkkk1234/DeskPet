@@ -3,6 +3,7 @@ use crate::services::ai_service::AIService;
 use crate::services::screenshot_service::ScreenshotService;
 use crate::core::soul::impression::ImpressionEvent;
 use tauri::{AppHandle, Manager, State};
+use uuid::Uuid;
 
 #[tauri::command]
 pub async fn capture_screenshot() -> Result<String, String> {
@@ -97,6 +98,14 @@ pub async fn analyze_screenshot(
 
     let ai_service = AIService::new(ai_config);
     let response = ai_service.chat_with_image_base64(&system_prompt, &image_base64, question_text, &[]).await?;
+
+    {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            let msg_id = Uuid::new_v4().to_string();
+            let _ = db.save_chat_message(&msg_id, &ghost.ghost_id, "assistant", &response);
+        }
+    }
 
     Ok(serde_json::json!({
         "description": response,

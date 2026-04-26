@@ -55,7 +55,7 @@ export function useChat() {
         { ghostId: ghostId.value, limit: 100 },
       )
       chatMessages.value = messages.map(m => ({
-        role: m.role as 'pet' | 'user' | 'system',
+        role: m.role === 'assistant' ? 'pet' : m.role as 'pet' | 'user' | 'system',
         content: m.content,
       }))
     } catch (e) {
@@ -150,7 +150,6 @@ export function useChat() {
 
   function pushUserMessage(content: string) {
     chatMessages.value.push({ role: 'user', content })
-    persistMessage('user', content)
   }
 
   function pushUserImageMessage(content: string, imageBase64: string) {
@@ -165,7 +164,6 @@ export function useChat() {
 
   function pushPetMessage(content: string) {
     chatMessages.value.push({ role: 'pet', content })
-    persistMessage('pet', content)
     speak(content)
   }
 

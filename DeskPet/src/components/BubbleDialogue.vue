@@ -155,7 +155,6 @@ const typingText = computed(() => typingDots.value.join(' '))
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin: 0 8px;
   animation: slideDown 0.3s ease both;
 }
 
@@ -174,7 +173,7 @@ const typingText = computed(() => typingDots.value.join(' '))
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px 8px 6px;
+  padding: 8px;
   max-height: 260px;
   overflow-y: auto;
   overflow-x: hidden;

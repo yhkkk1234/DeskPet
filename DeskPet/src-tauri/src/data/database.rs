@@ -436,11 +436,11 @@ impl Database {
     ) -> Result<Vec<ChatMessageRow>, String> {
         let mut stmt = self.conn
             .prepare(
-                "SELECT Id, GhostId, Role, Content, CreatedAt FROM ChatMessages WHERE GhostId = ?1 ORDER BY CreatedAt ASC LIMIT ?2",
+                "SELECT Id, GhostId, Role, Content, CreatedAt FROM ChatMessages WHERE GhostId = ?1 ORDER BY CreatedAt DESC LIMIT ?2",
             )
             .map_err(|e| e.to_string())?;
 
-        let rows = stmt
+        let mut rows = stmt
             .query_map(params![ghost_id, limit], |row| {
                 Ok(ChatMessageRow {
                     id: row.get(0)?,
@@ -454,6 +454,7 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
 
+        rows.reverse();
         Ok(rows)
     }
 

@@ -41,7 +41,7 @@ pub async fn chat_with_pet(
     {
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
-            let history = db.load_chat_history(&ghost.ghost_id, 10)?;
+            let history = db.load_chat_history(&ghost.ghost_id, 20)?;
             is_first_conversation = history.is_empty();
             for msg in &history {
                 if msg.role == "user" || msg.role == "assistant" {
@@ -71,13 +71,23 @@ pub async fn chat_with_pet(
     let ai_service = AIService::new(ai_config);
     let app_handle_clone = app_handle.clone();
 
-    let raw_response = ai_service.chat_streaming(
+    let raw_response = match ai_service.chat_streaming(
         &system_prompt,
         &messages,
         |token| {
             let _ = app_handle_clone.emit("chat:token", token);
         },
-    ).await?;
+    ).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[流式] 首次尝试失败: {}，将重试（非流式）", e);
+            let ai_service = AIService::new({
+                let locked = state.ai_config.lock().map_err(|e| e.to_string())?;
+                locked.as_ref().ok_or("AI 接口未配置")?.clone()
+            });
+            ai_service.chat(&system_prompt, &messages).await?
+        }
+    };
 
     // 检查 AI 是否请求生成图像：格式 [GENERATE_IMAGE: 描述]
     let mut generated_image = None;
@@ -104,6 +114,17 @@ pub async fn chat_with_pet(
     } else {
         raw_response.clone()
     };
+
+    // 保存用户消息和 AI 回复到 ChatMessages，确保对话上下文完整持久化
+    {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            let user_msg_id = uuid::Uuid::new_v4().to_string();
+            let _ = db.save_chat_message(&user_msg_id, &ghost.ghost_id, "user", &message);
+            let pet_msg_id = uuid::Uuid::new_v4().to_string();
+            let _ = db.save_chat_message(&pet_msg_id, &ghost.ghost_id, "assistant", &response);
+        }
+    }
 
     // 发送 chat:complete — 前端显示完整回复
     let mut complete_payload = serde_json::json!({

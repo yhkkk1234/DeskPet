@@ -149,6 +149,8 @@ const senderLabel = computed(() => {
 .bubble-tail-right {
   bottom: -10px;
   right: 16px;
+  width: 0;
+  height: 0;
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
   border-top: 10px solid #a5d6a7;

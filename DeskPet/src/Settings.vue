@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import type { RendererType } from './composables/usePetRenderer'
 
 const aiEndpoint = ref('https://api.deepseek.com/v1')
@@ -230,6 +230,25 @@ async function setAnsweringMode(mode: 'Companion' | 'Assistant') {
   }
 }
 
+const personalityLabels: Record<string, string> = {
+  openness: '开放',
+  conscientiousness: '尽责',
+  extraversion: '外向',
+  agreeableness: '宜人',
+  neuroticism: '情绪',
+  creativity: '创造',
+}
+
+const affinityColor = computed(() => {
+  if (!ghost.value) return '#888'
+  const lh = ghost.value.loveHate
+  if (lh > 50) return '#ff6b9d'
+  if (lh > 20) return '#8bc34a'
+  if (lh > -20) return '#ffb74d'
+  if (lh > -50) return '#ff9800'
+  return '#f44336'
+})
+
 async function closeWindow() {
   const win = getCurrentWindow()
   await win.hide()
@@ -317,6 +336,27 @@ async function closeWindow() {
               <button @click="setAnsweringMode('Assistant')" :class="['btn', answeringMode === 'Assistant' ? 'btn-cur-active' : 'btn-cur-off']">助力</button>
             </div>
             <p class="curiosity-hint">{{ answeringMode === 'Companion' ? '人格驱动，心情决定回答意愿' : '优先回答，截图对话自动启用' }}</p>
+          </div>
+        </div>
+
+        <!-- Personality -->
+        <div v-if="ghost" class="settings-section">
+          <div class="settings-section-title">🧠 人格数据</div>
+          <div class="stat-row">
+            <span>好感度</span>
+            <span class="stat-value" :style="{ color: affinityColor }">{{ ghost.loveHate.toFixed(1) }}</span>
+            <span class="stat-dim">基线 {{ ghost.baseline.toFixed(1) }}</span>
+          </div>
+          <div class="stat-row">
+            <span>印象</span>
+            <span class="stat-value">{{ ghost.impression.overallAffinity.toFixed(1) }}</span>
+          </div>
+          <div class="personality-grid">
+            <div class="personality-item" v-for="(val, key) in ghost.personality" :key="key">
+              <span class="p-label">{{ personalityLabels[key as string] || key }}</span>
+              <div class="p-bar"><div class="p-fill" :style="{width: (val*100)+'%'}"></div></div>
+              <span class="p-val">{{ (val*100).toFixed(0) }}</span>
+            </div>
           </div>
         </div>
 
@@ -873,5 +913,67 @@ async function closeWindow() {
 
 .btn-danger:hover {
   background: #ffcdd2;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+  padding: 2px 0;
+}
+
+.stat-value {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.stat-dim {
+  color: #aaa;
+  font-size: 11px;
+}
+
+.personality-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0;
+}
+
+.personality-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.p-label {
+  width: 32px;
+  text-align: right;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.p-bar {
+  flex: 1;
+  height: 5px;
+  background: #eee;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.p-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff6b9d, #c084fc);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.p-val {
+  width: 26px;
+  text-align: right;
+  color: #888;
+  font-size: 10px;
 }
 </style>

@@ -7,7 +7,6 @@ import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import BubbleDialogue from './components/BubbleDialogue.vue'
 import PetRenderer from './components/PetRenderer.vue'
-import EmotionTimeline from './components/EmotionTimeline.vue'
 import { useChat } from './composables/useChat'
 import { useBubbleTimer } from './composables/useBubbleTimer'
 import { useAnimation } from './composables/useAnimation'
@@ -38,18 +37,48 @@ interface GhostStatus {
 const ghost = ref<GhostStatus | null>(null)
 const loading = ref(false)
 const error = ref('')
-const showPanel = ref(true)
-const showPersonality = ref(false)
 
 const { chatMessages, chatLoading, ghostId, ttsEnabled, ttsRate, ttsPitch, ttsEngine, ttsVoice, pushUserMessage, pushUserImageMessage, pushSystemMessage, pushPetMessage, pushPetImageMessage, clearMessages, loadHistory } = useChat()
 const { bubblesVisible, inputVisible, showInput, hideBubbles, toggleInput, resetHideTimer, onNewMessage, onUserActivity, bindChatLoading, onInputFocus, onInputBlur } = useBubbleTimer()
-const { currentAnimationState, moodConfig, petX, petY, isFlipped, movementStyle, updateMood, setPersonality, startIdleLoop, stopIdleLoop, playOneShot } = useAnimation()
+const { currentAnimationState, moodConfig, petX, petY, isFlipped, updateMood, setPersonality, startIdleLoop, stopIdleLoop, playOneShot } = useAnimation()
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
 bindChatLoading(chatLoading)
 
 const streamingContent = ref('')
 const responseComplete = ref(false)
+const showToolbar = ref(false)
+let didDrag = false
+let toolbarHideTimer: ReturnType<typeof setTimeout> | null = null
+
+function onHover(visible: boolean) {
+  if (visible) {
+    if (toolbarHideTimer) { clearTimeout(toolbarHideTimer); toolbarHideTimer = null }
+    showToolbar.value = true
+  } else {
+    toolbarHideTimer = setTimeout(() => { showToolbar.value = false }, 250)
+  }
+}
+
+function onPetMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return
+  playOneShot('surprise', 600)
+  petY.value = -14
+  didDrag = false
+  stopIdleLoop()
+
+  const win = getCurrentWindow()
+  const beforePromise = win.outerPosition()
+  win.startDragging().finally(() => {
+    petY.value = 0
+    startIdleLoop()
+    Promise.all([beforePromise, win.outerPosition()]).then(([before, after]) => {
+      if (Math.abs(after.x - before.x) > 3 || Math.abs(after.y - before.y) > 3) {
+        didDrag = true
+      }
+    })
+  })
+}
 
 const screenshotScreenRegion = ref({ x: 0, y: 0, width: 0, height: 0 })
 const screenshotAnalysisLoading = ref(false)
@@ -81,6 +110,16 @@ const affinityColor = computed(() => {
   return '#f44336'
 })
 
+const moodText = computed(() => {
+  if (!ghost.value) return ''
+  const lh = ghost.value.loveHate
+  if (lh > 50) return '很开心~'
+  if (lh > 20) return '心情不错'
+  if (lh > -20) return '还ok吧'
+  if (lh > -50) return '有点烦'
+  return '不太高兴...'
+})
+
 const petEmoji = computed(() => {
   if (!ghost.value) return '🐱'
   if (chatLoading.value) return '💭'
@@ -101,16 +140,6 @@ const petCssClass = computed(() => {
 })
 
 const petName = computed(() => ghost.value?.name || '桌宠')
-
-const moodText = computed(() => {
-  if (!ghost.value) return ''
-  const lh = ghost.value.loveHate
-  if (lh > 50) return '很开心~'
-  if (lh > 20) return '心情不错'
-  if (lh > -20) return '还ok吧'
-  if (lh > -50) return '有点烦'
-  return '不太高兴...'
-})
 
 const bubbleDialogueRef = ref<InstanceType<typeof BubbleDialogue> | null>(null)
 const screenshotBounce = ref(false)
@@ -216,22 +245,6 @@ function declineEnhancedPrivacy() {
   }
 }
 
-async function applyEvent(eventType: string, intensity: number) {
-  if (!ghost.value) return
-  try {
-    const result = await invoke<string>('apply_event', { eventType, intensity, description: eventType })
-    const parsed = JSON.parse(result)
-    if (ghost.value) {
-      ghost.value.loveHate = parsed.loveHate
-      ghost.value.baseline = parsed.baseline
-      ghost.value.impression.overallAffinity = parsed.overallAffinity
-      updateMood(ghost.value.loveHate, ghost.value.curiosityLevel)
-    }
-  } catch (e: any) {
-    console.error('Event error:', e)
-  }
-}
-
 async function tickGhost() {
   if (!ghost.value) return
   try {
@@ -276,6 +289,9 @@ let tickInterval: ReturnType<typeof setInterval> | null = null
 let autoSaveInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
 let chatHotkeyUnlisten: (() => void) | null = null
+let chatTokenUnlisten: (() => void) | null = null
+let chatCompleteUnlisten: (() => void) | null = null
+let chatPostProcessedUnlisten: (() => void) | null = null
 
 async function loadSpriteJson() {
   try {
@@ -422,11 +438,11 @@ onMounted(async () => {
   })
 
   // 流式对话事件监听
-  listen('chat:token', (event: any) => {
+  chatTokenUnlisten = await listen('chat:token', (event: any) => {
     streamingContent.value += event.payload as string
   })
 
-  listen('chat:complete', (event: any) => {
+  chatCompleteUnlisten = await listen('chat:complete', (event: any) => {
     const data = event.payload as {
       response: string
       generatedImage?: string
@@ -439,7 +455,7 @@ onMounted(async () => {
     responseComplete.value = true
   })
 
-  listen('chat:post-processed', (event: any) => {
+  chatPostProcessedUnlisten = await listen('chat:post-processed', (event: any) => {
     const data = event.payload as {
       loveHate: number
       baseline: number
@@ -487,6 +503,9 @@ onUnmounted(() => {
   if (autoSaveInterval) clearInterval(autoSaveInterval)
   if (hotkeyUnlisten) hotkeyUnlisten()
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
+  if (chatTokenUnlisten) chatTokenUnlisten()
+  if (chatCompleteUnlisten) chatCompleteUnlisten()
+  if (chatPostProcessedUnlisten) chatPostProcessedUnlisten()
   document.removeEventListener('keydown', handleEscKey)
   stopIdleLoop()
   window.speechSynthesis?.cancel()
@@ -503,6 +522,7 @@ function handleChatHotkey() {
 
 function handlePetClick(e: MouseEvent) {
   e.stopPropagation()
+  if (didDrag) return
   if (!ghost.value) return
   showInput()
   invoke('record_interaction').catch(() => {})
@@ -675,24 +695,6 @@ const personalityLabels: Record<string, string> = {
   creativity: '创造',
 }
 
-const eventGroups = [
-  { label: '正向', events: [
-    { type: 'UserCaredAboutPet', intensity: 0.8, name: '关心', cls: 'btn-positive' },
-    { type: 'UserPraisedPet', intensity: 0.6, name: '夸奖', cls: 'btn-positive' },
-    { type: 'UserSharedPersonalStory', intensity: 0.7, name: '分享', cls: 'btn-positive' },
-    { type: 'FirstConversation', intensity: 1.0, name: '初次', cls: 'btn-positive' },
-    { type: 'BirthdayCelebrated', intensity: 1.0, name: '生日', cls: 'btn-positive' },
-  ]},
-  { label: '中性', events: [
-    { type: 'NormalChat', intensity: 0.3, name: '聊天', cls: 'btn-neutral' },
-  ]},
-  { label: '负向', events: [
-    { type: 'UserGotAngry', intensity: 0.5, name: '生气', cls: 'btn-negative' },
-    { type: 'UserIgnoredPet', intensity: 0.8, name: '忽略', cls: 'btn-negative' },
-    { type: 'UserDismissedPet', intensity: 0.5, name: '敷衍', cls: 'btn-negative' },
-  ]},
-]
-
 interface TransferResult {
   oldSignature: string
   newSignature: string
@@ -773,11 +775,26 @@ const transferParticles = computed(() => {
 
 <template>
   <div class="pet-app">
-    <!-- Pet area - click to open chat -->
-    <div class="pet-area" @click="handlePetClick">
-      <div class="pet-status-bar">
-        <div class="pet-affinity-fill" :style="{ width: loveHatePercent + '%', background: affinityColor }" />
+    <!-- Hover toolbar (floating above pet) -->
+    <transition name="toolbar-fade">
+      <div v-if="showToolbar" class="hover-toolbar" @click.stop @mouseenter="onHover(true)" @mouseleave="onHover(false)">
+        <div class="hover-info">
+          <span class="hover-pet-name">{{ petName }} <span class="hover-lh-score" :style="{ color: affinityColor }">{{ ghost?.loveHate.toFixed(0) }}</span></span>
+          <span class="hover-mood-text">{{ moodText }} · 印象 {{ ghost?.impression.overallAffinity.toFixed(0) }}</span>
+          <div class="hover-mood-bar">
+            <div class="hover-mood-fill" :style="{ width: loveHatePercent + '%', background: affinityColor }"></div>
+          </div>
+        </div>
+        <div class="hover-actions">
+          <button @click.stop="toggleInput" title="对话 (Ctrl+Alt+C)">💬</button>
+          <button @click.stop="triggerScreenshot" title="截图 (Ctrl+Alt+X)">📸</button>
+          <button @click.stop="openSettingsWindow" title="设置">⚙️</button>
+        </div>
       </div>
+    </transition>
+
+    <!-- Pet -->
+    <div class="pet-area" @mouseenter="onHover(true)" @mouseleave="onHover(false)" @click="handlePetClick" @mousedown.prevent="onPetMouseDown">
       <PetRenderer
         :animation-state="currentAnimationState"
         :mood-config="moodConfig"
@@ -791,42 +808,6 @@ const transferParticles = computed(() => {
         :frame-durations="frameDurations"
         :is-flipped="isFlipped"
       />
-      <div class="pet-info">
-        <span class="pet-name">{{ petName }}</span>
-        <span v-if="ghost" class="pet-mood">{{ moodText }} · {{ movementStyle }}</span>
-      </div>
-      <div class="pet-drag-hint">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <circle cx="3" cy="3" r="1" fill="#ccc"/>
-          <circle cx="9" cy="3" r="1" fill="#ccc"/>
-          <circle cx="3" cy="9" r="1" fill="#ccc"/>
-          <circle cx="9" cy="9" r="1" fill="#ccc"/>
-          <circle cx="3" cy="6" r="1" fill="#ccc"/>
-          <circle cx="9" cy="6" r="1" fill="#ccc"/>
-        </svg>
-      </div>
-      <button class="screenshot-btn" @click.stop="triggerScreenshot" title="截图 (Ctrl+Alt+X)">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M5 2H6L7 3H10L11 2H12V3H14V13H2V3H4V2H5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-          <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2"/>
-        </svg>
-      </button>
-      <button class="chat-bubble-btn" @click.stop="toggleInput" title="对话 (Ctrl+Alt+C)">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M2 3H14V10H8L5 13V10H2V3Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <button class="settings-btn" @click.stop="openSettingsWindow" title="设置">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/>
-          <path d="M8 1V3M8 13V15M1 8H3M13 8H15M3.05 3.05L4.46 4.46M11.54 11.54L12.95 12.95M3.05 12.95L4.46 11.54M11.54 4.46L12.95 3.05" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-        </svg>
-      </button>
-      <div class="pet-chevron" :class="{ 'chevron-up': showPanel }">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M3 5L7 9L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-      </div>
     </div>
 
     <!-- Bubble dialogue -->
@@ -848,73 +829,6 @@ const transferParticles = computed(() => {
           @input-blur="onInputBlur"
           @toggle-mode="toggleAnsweringMode"
         />
-      </div>
-    </transition>
-
-    <!-- Collapsible panel -->
-    <transition name="panel-slide">
-      <div v-if="showPanel" class="panel">
-        <template v-if="!ghost">
-          <div class="panel-section">
-            <button @click.stop="generateGhost" class="btn btn-generate" :disabled="loading">
-              {{ loading ? '生成中...' : '✨ 生成桌宠灵魂' }}
-            </button>
-          </div>
-        </template>
-
-        <template v-if="ghost">
-          <!-- Stats -->
-          <div class="panel-section">
-            <div class="stat-row">
-              <span>好感度</span>
-              <span class="stat-value" :style="{ color: affinityColor }">{{ ghost.loveHate.toFixed(1) }}</span>
-              <span class="stat-dim">基线 {{ ghost.baseline.toFixed(1) }}</span>
-            </div>
-            <div class="stat-row">
-              <span>印象</span>
-              <span class="stat-value">{{ ghost.impression.overallAffinity.toFixed(1) }}</span>
-            </div>
-          </div>
-
-          <!-- Personality (collapsible) -->
-          <div class="panel-section">
-            <div class="section-toggle" @click.stop="showPersonality = !showPersonality">
-              <span>性格维度</span>
-              <span class="toggle-icon">{{ showPersonality ? '▲' : '▼' }}</span>
-            </div>
-            <div v-if="showPersonality" class="personality-grid">
-              <div class="personality-item" v-for="(val, key) in ghost.personality" :key="key">
-                <span class="p-label">{{ personalityLabels[key as string] || key }}</span>
-                <div class="p-bar"><div class="p-fill" :style="{width: (val*100)+'%'}"></div></div>
-                <span class="p-val">{{ (val*100).toFixed(0) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Events -->
-          <div class="panel-section">
-            <div class="section-label">情感事件</div>
-            <div v-for="group in eventGroups" :key="group.label" class="event-group">
-              <div class="event-group-label">{{ group.label }}</div>
-              <div class="event-buttons">
-                <button
-                  v-for="ev in group.events"
-                  :key="ev.type"
-                  @click.stop="applyEvent(ev.type, ev.intensity)"
-                  :class="['btn', ev.cls]"
-                >{{ ev.name }}</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Emotion Timeline -->
-          <div class="panel-section">
-            <EmotionTimeline />
-          </div>
-
-        </template>
-
-        <div v-if="error" class="error-msg">{{ error }}</div>
       </div>
     </transition>
 
@@ -1036,48 +950,105 @@ const transferParticles = computed(() => {
 /* Pet Area */
 .pet-area {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px 4px;
+  cursor: grab;
+}
+
+/* Bubble dialogue */
+.bubble-dialogue-wrapper {
+  margin: 0 4px 4px;
+}
+
+/* Hover toolbar */
+.hover-toolbar {
+  position: absolute;
+  top: -52px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px 10px 10px;
+  padding: 5px 10px;
   background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-  border-radius: 16px;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  transition: background 0.2s, box-shadow 0.2s;
-  position: relative;
-  z-index: 10;
-  margin: 8px;
-  -webkit-app-region: drag;
-}
-
-.pet-area button,
-.pet-area input,
-.pet-area a {
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  z-index: 200;
+  white-space: nowrap;
   -webkit-app-region: no-drag;
+  pointer-events: auto;
 }
 
-.pet-area:hover {
-  background: rgba(255, 255, 255, 0.97);
-  box-shadow: 0 4px 20px rgba(255, 107, 157, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.06);
+.hover-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 48px;
 }
 
-.pet-status-bar {
-  position: absolute;
-  top: -4px;
-  left: 50%;
-  width: 80px;
+.hover-pet-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #333;
+  line-height: 1.2;
+}
+
+.hover-lh-score {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.hover-mood-text {
+  font-size: 10px;
+  color: #888;
+  line-height: 1.2;
+}
+
+.hover-mood-bar {
   height: 3px;
   background: rgba(0, 0, 0, 0.1);
   border-radius: 2px;
   overflow: hidden;
-  transform: translateX(-50%);
+  width: 56px;
 }
 
-.pet-affinity-fill {
+.hover-mood-fill {
   height: 100%;
   border-radius: 2px;
   transition: width 0.5s ease, background 0.5s ease;
 }
+
+.hover-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.hover-toolbar button {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.hover-toolbar button:hover {
+  background: rgba(255, 107, 157, 0.1);
+  transform: scale(1.15);
+}
+
+.toolbar-fade-enter-active { transition: all 0.2s ease; }
+.toolbar-fade-leave-active { transition: all 0.15s ease; }
+.toolbar-fade-enter-from,
+.toolbar-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(4px); }
 
 .screenshot-bounce {
   animation: screenshotBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 1 !important;
@@ -1091,133 +1062,7 @@ const transferParticles = computed(() => {
   100% { transform: translateY(0) scale(1); }
 }
 
-@keyframes idleBounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-}
-
-@keyframes speakingBounce {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-2px) scale(1.05); }
-}
-
-.pet-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex: 1;
-  min-width: 0;
-}
-
-.pet-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: #333;
-  line-height: 1.3;
-}
-
-.pet-mood {
-  font-size: 11px;
-  color: #888;
-  line-height: 1.3;
-}
-
-.screenshot-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  color: #999;
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-
-.screenshot-btn:hover {
-  background: rgba(255, 107, 157, 0.1);
-  color: #ff6b9d;
-}
-
-.chat-bubble-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  color: #999;
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-
-.chat-bubble-btn:hover {
-  background: rgba(192, 132, 252, 0.12);
-  color: #c084fc;
-}
-
-.settings-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  color: #999;
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-
-.settings-btn:hover {
-  background: rgba(150, 150, 150, 0.12);
-  color: #666;
-}
-
-.pet-chevron {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  color: #999;
-  transition: transform 0.3s ease;
-  flex-shrink: 0;
-}
-
-.chevron-up {
-  transform: rotate(180deg);
-}
-
-.pet-drag-hint {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 20px;
-  flex-shrink: 0;
-  opacity: 0.4;
-  transition: opacity 0.2s;
-  cursor: grab;
-}
-
-.pet-drag-hint:hover {
-  opacity: 0.8;
-}
-
-.pet-drag-hint:active {
-  cursor: grabbing;
-}
-
-/* Bubble dialogue transition */
+/* Bubble dialogue - floating beside pet */
 .bubble-slide-enter-active {
   transition: all 0.3s ease;
 }
@@ -1228,497 +1073,21 @@ const transferParticles = computed(() => {
 
 .bubble-slide-enter-from {
   opacity: 0;
-  transform: translateY(-10px);
+  transform: translateX(-6px);
 }
 
 .bubble-slide-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateX(-4px);
 }
 
 .bubble-dialogue-wrapper {
-  position: relative;
+  position: absolute;
+  left: 165px;
+  top: 6px;
   z-index: 5;
-}
-
-/* Panel - collapsible */
-.panel {
-  margin: 0 8px 8px;
-  background: rgba(255, 255, 255, 0.93);
-  backdrop-filter: blur(12px);
-  border-radius: 16px;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.panel-slide-enter-active,
-.panel-slide-leave-active {
-  transition: all 0.3s ease;
-  max-height: 600px;
-  opacity: 1;
-}
-
-.panel-slide-enter-from,
-.panel-slide-leave-to {
-  max-height: 0;
-  opacity: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  margin-top: 0;
-  margin-bottom: 0;
-}
-
-.panel-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.stat-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #666;
-}
-
-.stat-value {
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.stat-dim {
-  color: #aaa;
-  font-size: 11px;
-}
-
-.section-toggle {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  font-weight: 600;
-  color: #555;
-  cursor: pointer;
-  padding: 2px 0;
-}
-
-.toggle-icon {
-  font-size: 10px;
-  color: #999;
-}
-
-.personality-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 4px 0;
-}
-
-.personality-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-}
-
-.p-label {
-  width: 28px;
-  text-align: right;
-  color: #888;
-  flex-shrink: 0;
-}
-
-.p-bar {
-  flex: 1;
-  height: 5px;
-  background: #eee;
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.p-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #ff6b9d, #c084fc);
-  border-radius: 3px;
-  transition: width 0.5s ease;
-}
-
-.p-val {
-  width: 26px;
-  text-align: right;
-  color: #888;
-  font-size: 10px;
-}
-
-.section-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.event-group {
-  margin-bottom: 2px;
-}
-
-.event-group-label {
-  font-size: 10px;
-  color: #aaa;
-  margin-bottom: 2px;
-}
-
-.event-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.btn {
-  padding: 4px 10px;
-  border: none;
-  border-radius: 8px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-weight: 500;
-  line-height: 1.4;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-positive {
-  background: #e8f5e9;
-  color: #2e7d32;
-  border: 1px solid #a5d6a7;
-}
-
-.btn-positive:hover {
-  background: #c8e6c9;
-}
-
-.btn-neutral {
-  background: #f5f5f5;
-  color: #666;
-  border: 1px solid #ddd;
-}
-
-.btn-neutral:hover {
-  background: #eee;
-}
-
-.btn-negative {
-  background: #ffebee;
-  color: #c62828;
-  border: 1px solid #ef9a9a;
-}
-
-.btn-negative:hover {
-  background: #ffcdd2;
-}
-
-.btn-generate {
-  background: linear-gradient(135deg, #ff6b9d, #c084fc);
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  font-size: 13px;
-  width: 100%;
-}
-
-.btn-generate:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.btn-config {
-  background: #f0f0f0;
-  color: #555;
-  border: 1px solid #ddd;
-  width: 100%;
-  font-size: 11px;
-}
-
-.btn-config:hover {
-  background: #e5e5e5;
-}
-
-.btn-full {
-  width: 100%;
-  margin-top: 4px;
-}
-
-/* AI Config */
-.ai-config {
-  background: rgba(192, 132, 252, 0.06);
-  border: 1px solid rgba(192, 132, 252, 0.15);
-  border-radius: 10px;
-  padding: 10px;
-  margin-top: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.config-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.config-input {
-  padding: 5px 10px;
-  border: 1.5px solid rgba(192, 132, 252, 0.2);
-  border-radius: 6px;
-  font-size: 12px;
-  outline: none;
-  transition: border-color 0.2s;
-  background: #fff;
-}
-
-.config-input:focus {
-  border-color: #c084fc;
-}
-
-.config-slide-enter-active,
-.config-slide-leave-active {
-  transition: all 0.2s ease;
-  max-height: 300px;
-  opacity: 1;
-}
-
-.config-slide-enter-from,
-.config-slide-leave-to {
-  max-height: 0;
-  opacity: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.error-msg {
-  color: #f44336;
-  font-size: 11px;
-  padding: 6px 8px;
-  background: #ffebee;
-  border-radius: 8px;
-}
-
-/* Scrollbar */
-.panel::-webkit-scrollbar {
-  width: 4px;
-}
-
-.panel::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.panel::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 2px;
-}
-
-/* Curiosity */
-.curiosity-panel {
-  padding: 6px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* Save/Load */
-.save-load-panel {
-  padding: 6px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.save-load-buttons {
-  display: flex;
-  gap: 6px;
-}
-
-.btn-save {
-  flex: 1;
-  background: #e3f2fd;
-  color: #1565c0;
-  border: 1px solid #90caf9;
-  font-size: 11px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btn-save:hover {
-  background: #bbdefb;
-}
-
-.btn-load {
-  flex: 1;
-  background: #f3e5f5;
-  color: #7b1fa2;
-  border: 1px solid #ce93d8;
-  font-size: 11px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btn-load:hover {
-  background: #e1bee7;
-}
-
-/* Renderer */
-.renderer-buttons {
-  display: flex;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.btn-ren-active {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  border: none;
-  color: white;
-  background: linear-gradient(135deg, #ff6b9d, #c084fc);
-}
-
-.btn-ren-off {
-  background: #f0f0f0;
-  color: #666;
-  border: 1px solid #ddd;
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  flex: 1;
-}
-
-.btn-ren-off:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.sprite-config {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sprite-info {
-  font-size: 10px;
-  color: #999;
-  padding: 2px 0;
-}
-
-.curiosity-status {
-  font-size: 12px;
-  color: #555;
-}
-
-.curiosity-off { color: #aaa; }
-.curiosity-normal { color: #4caf50; }
-.curiosity-enhanced { color: #7c4dff; font-weight: 700; }
-
-.curiosity-levels {
-  display: flex;
-  gap: 4px;
-}
-
-.btn-cur-off {
-  background: #f0f0f0;
-  color: #666;
-  border: 1px solid #ddd;
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  flex: 1;
-}
-
-.btn-cur-active {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  border: none;
-  flex: 1;
-  color: white;
-}
-
-.btn-cur-active.btn-cur-off { background: #4caf50; }
-.btn-cur-off:hover { background: #e5e5e5; }
-
-.btn-curiosity-trigger {
-  background: linear-gradient(135deg, #4caf50, #8bc34a);
-  color: white;
-  border: none;
-  padding: 6px 14px;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-  width: 100%;
-}
-
-.btn-curiosity-trigger:hover {
-  opacity: 0.9;
-}
-
-.curiosity-hint {
-  font-size: 10px;
-  color: #ff9800;
-  margin: 0;
-}
-
-/* Transfer */
-.transfer-intro {
-  padding: 6px 0;
-}
-
-.transfer-desc {
-  font-size: 11px;
-  color: #777;
-  line-height: 1.6;
-  margin: 4px 0;
-}
-
-.transfer-warning {
-  font-size: 10px;
-  color: #f44336;
-  margin: 2px 0 8px;
-}
-
-.btn-transfer {
-  background: linear-gradient(135deg, #7c4dff, #448aff);
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 10px;
-  font-size: 13px;
-  width: 100%;
-  cursor: pointer;
-  font-weight: 600;
-  transition: opacity 0.2s;
-}
-
-.btn-transfer:hover {
-  opacity: 0.9;
+  width: 175px;
+  max-height: 100vh;
 }
 
 .btn-transfer-complete {
