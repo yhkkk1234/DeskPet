@@ -12,6 +12,7 @@ export default defineConfig({
         index: 'index.html',
         settings: 'settings.html',
         screenshot: 'screenshot.html',
+        chat: 'chat.html',
       },
     },
   },

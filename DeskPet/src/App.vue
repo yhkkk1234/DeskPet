@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
-import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
-import BubbleDialogue from './components/BubbleDialogue.vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import PetRenderer from './components/PetRenderer.vue'
 import { useChat } from './composables/useChat'
-import { useBubbleTimer } from './composables/useBubbleTimer'
 import { useAnimation } from './composables/useAnimation'
 import { usePetRenderer } from './composables/usePetRenderer'
 
@@ -38,15 +36,11 @@ const ghost = ref<GhostStatus | null>(null)
 const loading = ref(false)
 const error = ref('')
 
-const { chatMessages, chatLoading, ghostId, ttsEnabled, ttsRate, ttsPitch, ttsEngine, ttsVoice, pushUserMessage, pushUserImageMessage, pushSystemMessage, pushPetMessage, pushPetImageMessage, clearMessages, loadHistory } = useChat()
-const { bubblesVisible, inputVisible, showInput, hideBubbles, toggleInput, resetHideTimer, onNewMessage, onUserActivity, bindChatLoading, onInputFocus, onInputBlur } = useBubbleTimer()
+const { ghostId, pushSystemMessage, clearMessages, loadHistory } = useChat()
+const chatLoading = ref(false)
 const { currentAnimationState, moodConfig, petX, petY, isFlipped, updateMood, setPersonality, startIdleLoop, stopIdleLoop, playOneShot } = useAnimation()
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
-bindChatLoading(chatLoading)
-
-const streamingContent = ref('')
-const responseComplete = ref(false)
 const showToolbar = ref(false)
 let didDrag = false
 let toolbarHideTimer: ReturnType<typeof setTimeout> | null = null
@@ -82,18 +76,10 @@ function onPetMouseDown(e: MouseEvent) {
 
 const screenshotScreenRegion = ref({ x: 0, y: 0, width: 0, height: 0 })
 const screenshotAnalysisLoading = ref(false)
-const pendingScreenShotBase64 = ref<string | null>(null)
-const visionResult = ref('')
 const showEnhancedPrivacyDialog = ref(false)
 const enhancedPrivacyAccepted = ref(localStorage.getItem('deskpet_enhanced_privacy') === 'true')
 const answeringMode = ref<'Companion' | 'Assistant'>('Companion')
 const previousAnsweringMode = ref<'Companion' | 'Assistant' | null>(null)
-
-ttsEnabled.value = localStorage.getItem('deskpet_tts_enabled') === 'true'
-ttsRate.value = parseFloat(localStorage.getItem('deskpet_tts_rate') || '1.0')
-ttsPitch.value = parseFloat(localStorage.getItem('deskpet_tts_pitch') || '1.1')
-ttsEngine.value = (localStorage.getItem('deskpet_tts_engine') as 'system' | 'edge') || 'system'
-ttsVoice.value = localStorage.getItem('deskpet_tts_voice') || 'zh-CN-XiaoxiaoNeural'
 
 const loveHatePercent = computed(() => {
   if (!ghost.value) return 50
@@ -133,19 +119,11 @@ const petEmoji = computed(() => {
   return '😿'
 })
 
-const petCssClass = computed(() => {
-  const classes = ['pet-sprite-wrapper']
-  if (screenshotBounce.value) classes.push('screenshot-bounce')
-  return classes
-})
+const petCssClass = computed(() => ['pet-sprite-wrapper'])
 
 const petName = computed(() => ghost.value?.name || '桌宠')
 
-const bubbleDialogueRef = ref<InstanceType<typeof BubbleDialogue> | null>(null)
-const screenshotBounce = ref(false)
-const screenShotPlaceholder = computed(() => 
-  pendingScreenShotBase64.value ? '想问这张截图什么？（直接回车=自动描述）' : '跟桌宠说说...'
-)
+
 
 async function generateGhost() {
   loading.value = true
@@ -210,8 +188,7 @@ async function curiosityBackgroundAnalyze() {
     const result = await invoke<{ analyzed: boolean; activity?: string }>('curiosity_background_analyze')
     if (result.analyzed && result.activity) {
       pushSystemMessage(`(好奇心观察) ${result.activity}`)
-      onNewMessage()
-    }
+      }
   } catch (e) {
     console.warn('好奇心后台分析失败:', e)
   }
@@ -223,7 +200,6 @@ async function curiosityResearch() {
     const result = await invoke<{ researched: boolean; interest?: string; finding?: string }>('curiosity_research')
     if (result.researched && result.finding) {
       pushSystemMessage(`(好奇心探索·${result.interest}) ${result.finding}`)
-      onNewMessage()
     }
   } catch (e) {
     console.warn('好奇心探索失败:', e)
@@ -266,7 +242,6 @@ async function tickGhost() {
     }
     if (result.inactivityEvent) {
       pushSystemMessage(`${result.inactivityEvent.hoursAway}小时没互动了...好感度变化 ${result.inactivityEvent.loveHateDelta > 0 ? '+' : ''}${result.inactivityEvent.loveHateDelta.toFixed(1)}`)
-      onNewMessage()
     }
     if (result.curiosityTriggered && ghost.value) {
       playOneShot('curious', 800)
@@ -289,8 +264,6 @@ let tickInterval: ReturnType<typeof setInterval> | null = null
 let autoSaveInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
 let chatHotkeyUnlisten: (() => void) | null = null
-let chatTokenUnlisten: (() => void) | null = null
-let chatCompleteUnlisten: (() => void) | null = null
 let chatPostProcessedUnlisten: (() => void) | null = null
 
 async function loadSpriteJson() {
@@ -428,38 +401,10 @@ onMounted(async () => {
     restoreAnsweringMode()
   })
 
-  await listen('tts-updated', (event: any) => {
-    const { enabled, rate, pitch, engine, voice } = event.payload
-    ttsEnabled.value = enabled
-    ttsRate.value = rate ?? 1.0
-    ttsPitch.value = pitch ?? 1.1
-    ttsEngine.value = engine ?? 'system'
-    ttsVoice.value = voice ?? 'zh-CN-XiaoxiaoNeural'
-  })
-
-  // 流式对话事件监听
-  chatTokenUnlisten = await listen('chat:token', (event: any) => {
-    streamingContent.value += event.payload as string
-  })
-
-  chatCompleteUnlisten = await listen('chat:complete', (event: any) => {
-    const data = event.payload as {
-      response: string
-      generatedImage?: string
-    }
-    pushPetMessage(data.response)
-    if (data.generatedImage) {
-      pushPetImageMessage('[图像已生成]', data.generatedImage)
-    }
-    streamingContent.value = ''
-    responseComplete.value = true
-  })
-
   chatPostProcessedUnlisten = await listen('chat:post-processed', (event: any) => {
     const data = event.payload as {
       loveHate: number
       baseline: number
-      personality: Record<string, number>
       sentiment: {
         eventType: string
         loveHateHint: number
@@ -484,16 +429,14 @@ onMounted(async () => {
       }
     }
     chatLoading.value = false
-    responseComplete.value = false
-    resetHideTimer()
   })
 
   document.addEventListener('keydown', handleEscKey)
 })
 
 function handleEscKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && inputVisible.value) {
-    hideBubbles()
+  if (e.key === 'Escape') {
+    // 不再控制气泡隐藏，ChatWindow 独立处理
   }
 }
 
@@ -503,8 +446,6 @@ onUnmounted(() => {
   if (autoSaveInterval) clearInterval(autoSaveInterval)
   if (hotkeyUnlisten) hotkeyUnlisten()
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
-  if (chatTokenUnlisten) chatTokenUnlisten()
-  if (chatCompleteUnlisten) chatCompleteUnlisten()
   if (chatPostProcessedUnlisten) chatPostProcessedUnlisten()
   document.removeEventListener('keydown', handleEscKey)
   stopIdleLoop()
@@ -512,52 +453,47 @@ onUnmounted(() => {
 })
 
 function handleChatHotkey() {
-  toggleInput()
-  if (inputVisible.value) {
-    nextTick(() => {
-      bubbleDialogueRef.value?.focusInput()
-    })
-  }
+  openChatWindow()
 }
 
 function handlePetClick(e: MouseEvent) {
   e.stopPropagation()
   if (didDrag) return
   if (!ghost.value) return
-  showInput()
   invoke('record_interaction').catch(() => {})
-  nextTick(() => {
-    bubbleDialogueRef.value?.focusInput()
-  })
+  openChatWindow()
 }
 
-async function handleSendMessage(message: string) {
-  if (pendingScreenShotBase64.value) {
-    const base64 = pendingScreenShotBase64.value
-    pendingScreenShotBase64.value = null
-    onNewMessage()
-    await executeScreenShotAnalysis(base64, message)
-    resetHideTimer()
-    return
+async function openChatWindow() {
+  let chatWin = await WebviewWindow.getByLabel('chat')
+  if (!chatWin) {
+    chatWin = new WebviewWindow('chat', {
+      url: 'chat.html',
+      title: 'DeskPet - 对话',
+      width: 360,
+      height: 500,
+      minWidth: 300,
+      minHeight: 300,
+      resizable: true,
+      transparent: true,
+      decorations: false,
+      alwaysOnTop: true,
+      skipTaskbar: false,
+      visible: true,
+    })
+    await new Promise(resolve => setTimeout(resolve, 200))
+    try {
+      await chatWin.setShadow(false)
+    } catch (e) {
+      console.warn('Failed to disable shadow:', e)
+    }
   }
-
-  pushUserMessage(message)
-  chatLoading.value = true
-  streamingContent.value = ''
-  responseComplete.value = false
-  onNewMessage()
-
-  try {
-    await invoke('chat_with_pet', { message })
-    onNewMessage()
-    screenshotBounce.value = true
-    setTimeout(() => { screenshotBounce.value = false }, 500)
-  } catch (e: any) {
-    pushSystemMessage(`发送失败: ${e}`)
-    onNewMessage()
-    chatLoading.value = false
-    responseComplete.value = false
-    resetHideTimer()
+  const visible = await chatWin.isVisible()
+  if (visible) {
+    await chatWin.setFocus()
+  } else {
+    await chatWin.show()
+    await chatWin.setFocus()
   }
 }
 
@@ -565,7 +501,6 @@ async function triggerScreenshot() {
   if (screenshotAnalysisLoading.value) return
   screenshotAnalysisLoading.value = true
   pushSystemMessage('正在截取屏幕...')
-  onNewMessage()
 
   try {
     const base64 = await invoke<string>('capture_screenshot')
@@ -588,12 +523,10 @@ async function triggerScreenshot() {
       console.error('Screenshot overlay creation error:', e)
       pushSystemMessage(`截图窗口创建失败: ${e?.payload || e}`)
       screenshotAnalysisLoading.value = false
-      onNewMessage()
     })
   } catch (e: any) {
     screenshotAnalysisLoading.value = false
     pushSystemMessage(`截图失败: ${e}`)
-    onNewMessage()
   }
 }
 
@@ -605,9 +538,6 @@ async function analyzeScreenshot(base64: string) {
 
   movePetToScreenshotRegion()
   playOneShot('surprise', 400)
-
-  pushUserImageMessage('✓ 截图', base64)
-  onNewMessage()
   screenshotAnalysisLoading.value = false
 
   if (answeringMode.value === 'Companion') {
@@ -616,29 +546,14 @@ async function analyzeScreenshot(base64: string) {
     invoke('set_answering_mode', { mode: 'Assistant' }).catch(() => {})
   }
 
-  pendingScreenShotBase64.value = base64
-  showInput()
-}
-
-async function executeScreenShotAnalysis(base64: string, question: string) {
-  screenshotAnalysisLoading.value = true
-  try {
-    const params: Record<string, unknown> = { imageBase64: base64 }
-    if (question) params.question = question
-    const result = await invoke<{ description: string; petName: string }>('analyze_screenshot', params)
-    visionResult.value = result.description
-    pushPetMessage(result.description)
-    onNewMessage()
-    screenshotBounce.value = true
-    setTimeout(() => { screenshotBounce.value = false }, 600)
-  } catch (e: any) {
-    pushSystemMessage(`截图识别失败: ${e}`)
-    onNewMessage()
-  } finally {
-    screenshotAnalysisLoading.value = false
-    pendingScreenShotBase64.value = null
-    restoreAnsweringMode()
-  }
+  await openChatWindow()
+  setTimeout(async () => {
+    try {
+      await emit('chat:open-with-screenshot', { base64 })
+    } catch {
+      pushSystemMessage('截图数据发送到对话窗口失败')
+    }
+  }, 300)
 }
 
 function restoreAnsweringMode() {
@@ -646,17 +561,6 @@ function restoreAnsweringMode() {
     answeringMode.value = previousAnsweringMode.value
     invoke('set_answering_mode', { mode: previousAnsweringMode.value }).catch(() => {})
     previousAnsweringMode.value = null
-  }
-}
-
-async function toggleAnsweringMode() {
-  const newMode = answeringMode.value === 'Companion' ? 'Assistant' : 'Companion';
-  answeringMode.value = newMode
-  localStorage.setItem('deskpet_answering_mode', newMode)
-  try {
-    await invoke('set_answering_mode', { mode: newMode })
-  } catch (e) {
-    console.warn('切换回应模式失败:', e)
   }
 }
 
@@ -786,7 +690,7 @@ const transferParticles = computed(() => {
           </div>
         </div>
         <div class="hover-actions">
-          <button @click.stop="toggleInput" title="对话 (Ctrl+Alt+C)">💬</button>
+          <button @click.stop="openChatWindow" title="对话 (Ctrl+Alt+C)">💬</button>
           <button @click.stop="triggerScreenshot" title="截图 (Ctrl+Alt+X)">📸</button>
           <button @click.stop="openSettingsWindow" title="设置">⚙️</button>
         </div>
@@ -809,28 +713,6 @@ const transferParticles = computed(() => {
         :is-flipped="isFlipped"
       />
     </div>
-
-    <!-- Bubble dialogue -->
-    <transition name="bubble-slide">
-      <div v-if="bubblesVisible && (chatMessages.length > 0 || inputVisible)" class="bubble-dialogue-wrapper" @click.stop @mousedown="onUserActivity">
-        <BubbleDialogue
-          ref="bubbleDialogueRef"
-          :messages="chatMessages"
-          :pet-name="petName"
-          :chat-loading="chatLoading"
-          :streaming-content="streamingContent"
-          :response-complete="responseComplete"
-          :love-hate="ghost?.loveHate ?? 0"
-          :placeholder="screenShotPlaceholder"
-          :allow-empty-send="!!pendingScreenShotBase64"
-          :answering-mode="answeringMode"
-          @send="handleSendMessage"
-          @input-focus="onInputFocus"
-          @input-blur="onInputBlur"
-          @toggle-mode="toggleAnsweringMode"
-        />
-      </div>
-    </transition>
 
     <div v-if="screenshotAnalysisLoading" class="screenshot-analysis-loading">
       <div class="loading-spinner"></div>
@@ -965,7 +847,7 @@ const transferParticles = computed(() => {
 /* Hover toolbar */
 .hover-toolbar {
   position: absolute;
-  top: -52px;
+  top: 4px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1049,46 +931,6 @@ const transferParticles = computed(() => {
 .toolbar-fade-leave-active { transition: all 0.15s ease; }
 .toolbar-fade-enter-from,
 .toolbar-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(4px); }
-
-.screenshot-bounce {
-  animation: screenshotBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 1 !important;
-}
-
-@keyframes screenshotBounce {
-  0% { transform: translateY(0) scale(1); }
-  30% { transform: translateY(-12px) scale(1.15); }
-  50% { transform: translateY(-8px) scale(1.05); }
-  70% { transform: translateY(4px) scale(0.95); }
-  100% { transform: translateY(0) scale(1); }
-}
-
-/* Bubble dialogue - floating beside pet */
-.bubble-slide-enter-active {
-  transition: all 0.3s ease;
-}
-
-.bubble-slide-leave-active {
-  transition: all 0.25s ease;
-}
-
-.bubble-slide-enter-from {
-  opacity: 0;
-  transform: translateX(-6px);
-}
-
-.bubble-slide-leave-to {
-  opacity: 0;
-  transform: translateX(-4px);
-}
-
-.bubble-dialogue-wrapper {
-  position: absolute;
-  left: 165px;
-  top: 6px;
-  z-index: 5;
-  width: 175px;
-  max-height: 100vh;
-}
 
 .btn-transfer-complete {
   background: linear-gradient(135deg, #ff6b9d, #c084fc);

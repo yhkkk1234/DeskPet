@@ -4,6 +4,7 @@ import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { ref, computed, onMounted } from 'vue'
 import type { RendererType } from './composables/usePetRenderer'
+import EmotionTimeline from './components/EmotionTimeline.vue'
 
 const aiEndpoint = ref('https://api.deepseek.com/v1')
 const aiApiKey = ref('')
@@ -239,6 +240,41 @@ const personalityLabels: Record<string, string> = {
   creativity: '创造',
 }
 
+const eventGroups = [
+  { label: '正向', events: [
+    { type: 'UserCaredAboutPet', intensity: 0.8, name: '关心', cls: 'btn-positive' },
+    { type: 'UserPraisedPet', intensity: 0.6, name: '夸奖', cls: 'btn-positive' },
+    { type: 'UserSharedPersonalStory', intensity: 0.7, name: '分享', cls: 'btn-positive' },
+    { type: 'FirstConversation', intensity: 1.0, name: '初次', cls: 'btn-positive' },
+    { type: 'BirthdayCelebrated', intensity: 1.0, name: '生日', cls: 'btn-positive' },
+  ]},
+  { label: '中性', events: [
+    { type: 'NormalChat', intensity: 0.3, name: '聊天', cls: 'btn-neutral' },
+  ]},
+  { label: '负向', events: [
+    { type: 'UserGotAngry', intensity: 0.5, name: '生气', cls: 'btn-negative' },
+    { type: 'UserIgnoredPet', intensity: 0.8, name: '忽略', cls: 'btn-negative' },
+    { type: 'UserDismissedPet', intensity: 0.5, name: '敷衍', cls: 'btn-negative' },
+  ]},
+]
+
+async function applyEvent(eventType: string, intensity: number) {
+  if (!ghost.value) return
+  try {
+    const result = await invoke<string>('apply_event', { eventType, intensity, description: eventType })
+    const parsed = JSON.parse(result)
+    if (ghost.value) {
+      ghost.value.loveHate = parsed.loveHate
+      ghost.value.baseline = parsed.baseline
+      ghost.value.impression.overallAffinity = parsed.overallAffinity
+    }
+    showSuccess(`${eventType} 已应用`)
+    await emit('settings-updated', { section: 'ghost' })
+  } catch (e: any) {
+    showError('事件失败: ' + e)
+  }
+}
+
 const affinityColor = computed(() => {
   if (!ghost.value) return '#888'
   const lh = ghost.value.loveHate
@@ -360,6 +396,25 @@ async function closeWindow() {
           </div>
         </div>
 
+        <!-- Emotional Events -->
+        <div v-if="ghost" class="settings-section">
+          <div class="settings-section-title">💗 情感事件</div>
+          <div class="event-groups">
+            <div v-for="group in eventGroups" :key="group.label" class="event-group">
+              <div class="event-group-label">{{ group.label }}</div>
+              <div class="event-buttons">
+                <button
+                  v-for="ev in group.events"
+                  :key="ev.type"
+                  @click.stop="applyEvent(ev.type, ev.intensity)"
+                  :class="['btn', ev.cls]"
+                >{{ ev.name }}</button>
+              </div>
+            </div>
+          </div>
+          <EmotionTimeline />
+        </div>
+
         <!-- Data -->
         <div v-if="ghost" class="settings-section">
           <div class="settings-section-title">💾 数据</div>
@@ -393,11 +448,15 @@ async function closeWindow() {
                 </select>
               </div>
               <label class="config-label" style="margin-top: 12px;">语速</label>
-              <input type="range" min="0.5" max="2.0" step="0.1" v-model.number="ttsRate" @change="saveTTSSettings" class="tts-slider" />
-              <span class="tts-rate-value">{{ ttsRate.toFixed(1) }}x</span>
+              <div class="slider-row">
+                <input type="range" min="0.5" max="2.0" step="0.1" v-model.number="ttsRate" @change="saveTTSSettings" class="tts-slider" />
+                <span class="tts-rate-value">{{ ttsRate.toFixed(1) }}x</span>
+              </div>
               <label class="config-label" style="margin-top: 12px;">音调</label>
-              <input type="range" min="0.5" max="2.0" step="0.1" v-model.number="ttsPitch" @change="saveTTSSettings" class="tts-slider" />
-              <span class="tts-rate-value">{{ ttsPitch.toFixed(1) }}</span>
+              <div class="slider-row">
+                <input type="range" min="0.5" max="2.0" step="0.1" v-model.number="ttsPitch" @change="saveTTSSettings" class="tts-slider" />
+                <span class="tts-rate-value">{{ ttsPitch.toFixed(1) }}</span>
+              </div>
             </div>
             <p class="tts-hint" v-if="ttsEnabled">
               {{ ttsEngine === 'edge' ? '使用微软 Edge 免费在线语音，质量自然流畅' : '使用系统语音合成' }}
@@ -857,6 +916,12 @@ async function closeWindow() {
 
 .tts-rate-panel {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slider-row {
+  display: flex;
   align-items: center;
   gap: 8px;
 }
@@ -975,5 +1040,71 @@ async function closeWindow() {
   text-align: right;
   color: #888;
   font-size: 10px;
+}
+
+.event-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.event-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.event-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.event-buttons .btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.btn-positive {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
+}
+
+.btn-positive:hover {
+  background: #c8e6c9;
+}
+
+.btn-neutral {
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #ddd;
+}
+
+.btn-neutral:hover {
+  background: #eee;
+}
+
+.btn-negative {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+}
+
+.btn-negative:hover {
+  background: #ffcdd2;
 }
 </style>

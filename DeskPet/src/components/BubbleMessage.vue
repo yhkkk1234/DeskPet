@@ -47,7 +47,6 @@ const senderLabel = computed(() => {
 .bubble-wrapper {
   position: relative;
   max-width: 220px;
-  margin-bottom: 6px;
 }
 
 .bubble-pet {
