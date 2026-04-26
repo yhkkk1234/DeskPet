@@ -2,13 +2,13 @@ import { ref, computed } from 'vue'
 
 export type MoodState = 'love_high' | 'love_low' | 'neutral' | 'cold' | 'distant' | 'curious'
 export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise'
-export type IdleAction = 'bounce' | 'wave' | 'look_around' | 'stretch' | 'snooze' | 'poke' | 'spin' | 'shiver' | 'wander' | 'face_left' | 'face_right' | 'teleport' | 'peek'
+export type DailyBehavior = 'bounce' | 'wave' | 'look_around' | 'stretch' | 'snooze' | 'poke' | 'spin' | 'shiver' | 'wander' | 'face_left' | 'face_right' | 'teleport' | 'peek'
 export type MovementStyle = 'bouncy' | 'slide' | 'float' | 'walk' | 'teleport'
 export type FacingDirection = 'left' | 'right'
 
 export interface MoodAnimationConfig {
   mood: MoodState
-  animations: IdleAction[]
+  animations: DailyBehavior[]
   idleFrequency: number
   expression: string
   bounceSpeed: number
@@ -117,14 +117,7 @@ const MOOD_CONFIGS: Record<MoodState, MoodAnimationConfig> = {
   },
 }
 
-const MOOD_TO_ANIMATION_STATE: Record<MoodState, AnimationState> = {
-  love_high: 'happy',
-  love_low: 'content',
-  neutral: 'idle',
-  cold: 'cold',
-  distant: 'distant',
-  curious: 'curious',
-}
+
 
 function loveHateToMood(loveHate: number, curiosityLevel: string): MoodState {
   if (curiosityLevel === 'Enhanced' || curiosityLevel === 'Normal') {
@@ -138,7 +131,7 @@ function loveHateToMood(loveHate: number, curiosityLevel: string): MoodState {
   return 'distant'
 }
 
-const IDLE_ACTION_TO_ANIMATION_STATE: Record<IdleAction, AnimationState> = {
+const BEHAVIOR_TO_ANIMATION: Record<DailyBehavior, AnimationState> = {
   bounce: 'happy',
   wave: 'content',
   look_around: 'curious',
@@ -179,15 +172,16 @@ function deriveMovementStyle(personality: { openness: number; conscientiousness:
 
 export function useAnimation() {
   const currentMood = ref<MoodState>('neutral')
-  const currentIdleAction = ref<IdleAction>('bounce')
+  const currentBehavior = ref<DailyBehavior>('bounce')
   const currentAnimationState = ref<AnimationState>('idle')
   const isMoving = ref(false)
   const petX = ref(0)
   const petY = ref(0)
-  const isPerformingIdle = ref(false)
+  const isPerformingBehavior = ref(false)
   const facingDirection = ref<FacingDirection>('right')
   const movementStyle = ref<MovementStyle>('slide')
   const isFlipped = computed(() => facingDirection.value === 'left')
+  let animationGen = 0
 
   const moodConfig = computed(() => MOOD_CONFIGS[currentMood.value])
 
@@ -197,9 +191,6 @@ export function useAnimation() {
 
   function updateMood(loveHate: number, curiosityLevel: string) {
     currentMood.value = loveHateToMood(loveHate, curiosityLevel)
-    if (!isPerformingIdle.value) {
-      currentAnimationState.value = MOOD_TO_ANIMATION_STATE[currentMood.value]
-    }
   }
 
   function setAnimationState(state: AnimationState) {
@@ -207,34 +198,51 @@ export function useAnimation() {
   }
 
   function playOneShot(state: AnimationState, durationMs = 600): Promise<void> {
+    const gen = ++animationGen
+    isPerformingBehavior.value = true
+    currentAnimationState.value = state
+    stopDailyRoutine()
     return new Promise((resolve) => {
-      currentAnimationState.value = state
       setTimeout(() => {
-        const baseState = MOOD_TO_ANIMATION_STATE[currentMood.value]
-        currentAnimationState.value = baseState
+        if (animationGen === gen) {
+          currentAnimationState.value = 'idle'
+          isPerformingBehavior.value = false
+        }
+        startDailyRoutine()
         resolve()
       }, durationMs)
     })
   }
 
-  let idleTimer: ReturnType<typeof setTimeout> | null = null
+  let dailyTimer: ReturnType<typeof setTimeout> | null = null
 
-  function executeAction(action: IdleAction): Promise<void> {
+  function executeAction(action: DailyBehavior): Promise<void> {
+    const gen = ++animationGen
     return new Promise((resolve) => {
-      currentIdleAction.value = action
+      currentBehavior.value = action
 
       if (action === 'face_left') {
         facingDirection.value = 'left'
-        currentAnimationState.value = IDLE_ACTION_TO_ANIMATION_STATE[action]
-        isPerformingIdle.value = true
-        setTimeout(() => { isPerformingIdle.value = false; resolve() }, 500)
+        currentAnimationState.value = BEHAVIOR_TO_ANIMATION[action]
+        isPerformingBehavior.value = true
+        setTimeout(() => {
+          if (animationGen === gen) {
+            isPerformingBehavior.value = false
+          }
+          resolve()
+        }, 500)
         return
       }
       if (action === 'face_right') {
         facingDirection.value = 'right'
-        currentAnimationState.value = IDLE_ACTION_TO_ANIMATION_STATE[action]
-        isPerformingIdle.value = true
-        setTimeout(() => { isPerformingIdle.value = false; resolve() }, 500)
+        currentAnimationState.value = BEHAVIOR_TO_ANIMATION[action]
+        isPerformingBehavior.value = true
+        setTimeout(() => {
+          if (animationGen === gen) {
+            isPerformingBehavior.value = false
+          }
+          resolve()
+        }, 500)
         return
       }
       if (action === 'wander') {
@@ -243,20 +251,29 @@ export function useAnimation() {
         const distance = 20 + Math.random() * 40
         const targetX = petX.value + direction * distance
         const clamped = Math.max(-window.innerWidth * 0.3, Math.min(window.innerWidth * 0.3, targetX))
-        movePetTo(clamped, petY.value).then(resolve)
+        isPerformingBehavior.value = true
+        movePetTo(clamped, petY.value).then(() => {
+          if (animationGen === gen) {
+            isPerformingBehavior.value = false
+          }
+          resolve()
+        })
         return
       }
       if (action === 'teleport') {
         const tx = (Math.random() - 0.5) * window.innerWidth * 0.4
         const ty = (Math.random() - 0.5) * 20
-        isPerformingIdle.value = true
+        isPerformingBehavior.value = true
         currentAnimationState.value = 'surprise'
         setTimeout(() => {
+          if (animationGen !== gen) { resolve(); return }
           petX.value = tx
           petY.value = ty
           facingDirection.value = Math.random() < 0.5 ? 'left' : 'right'
           setTimeout(() => {
-            isPerformingIdle.value = false
+            if (animationGen === gen) {
+              isPerformingBehavior.value = false
+            }
             resolve()
           }, 300)
         }, 400)
@@ -266,30 +283,33 @@ export function useAnimation() {
         const prevFacing = facingDirection.value
         facingDirection.value = Math.random() < 0.5 ? 'left' : 'right'
         currentAnimationState.value = 'curious'
-        isPerformingIdle.value = true
+        isPerformingBehavior.value = true
         setTimeout(() => {
-          facingDirection.value = prevFacing
-          isPerformingIdle.value = false
+          if (animationGen === gen) {
+            facingDirection.value = prevFacing
+            isPerformingBehavior.value = false
+          }
           resolve()
         }, 1200)
         return
       }
 
-      currentAnimationState.value = IDLE_ACTION_TO_ANIMATION_STATE[action]
-      isPerformingIdle.value = true
+      currentAnimationState.value = BEHAVIOR_TO_ANIMATION[action]
+      isPerformingBehavior.value = true
 
       const duration = action === 'snooze' ? 3000 : action === 'spin' ? 1200 : 800
       setTimeout(() => {
-        isPerformingIdle.value = false
-        const baseState = MOOD_TO_ANIMATION_STATE[currentMood.value]
-        currentAnimationState.value = baseState
+        if (animationGen === gen) {
+          currentAnimationState.value = 'idle'
+          isPerformingBehavior.value = false
+        }
         resolve()
       }, duration)
     })
   }
 
-  function triggerIdleAction() {
-    if (isPerformingIdle.value || isMoving.value) return
+  function triggerDailyBehavior() {
+    if (isPerformingBehavior.value || isMoving.value) return
     const config = moodConfig.value
     if (!config) return
 
@@ -298,8 +318,8 @@ export function useAnimation() {
     executeAction(action)
   }
 
-  function scheduleNextIdle() {
-    if (idleTimer) clearTimeout(idleTimer)
+  function scheduleNextDaily() {
+    if (dailyTimer) clearTimeout(dailyTimer)
     const config = moodConfig.value
     if (!config) return
 
@@ -307,21 +327,21 @@ export function useAnimation() {
     const variance = baseInterval * 0.4
     const interval = baseInterval + (Math.random() * 2 - 1) * variance
 
-    idleTimer = setTimeout(() => {
-      triggerIdleAction()
-      scheduleNextIdle()
+    dailyTimer = setTimeout(() => {
+      triggerDailyBehavior()
+      scheduleNextDaily()
     }, interval)
   }
 
-  function startIdleLoop() {
-    stopIdleLoop()
-    scheduleNextIdle()
+  function startDailyRoutine() {
+    stopDailyRoutine()
+    scheduleNextDaily()
   }
 
-  function stopIdleLoop() {
-    if (idleTimer) {
-      clearTimeout(idleTimer)
-      idleTimer = null
+  function stopDailyRoutine() {
+    if (dailyTimer) {
+      clearTimeout(dailyTimer)
+      dailyTimer = null
     }
   }
 
@@ -384,13 +404,37 @@ export function useAnimation() {
     isMoving.value = false
   }
 
+  const EMOTION_REACTION_MAP: Record<string, { state: AnimationState; duration: number }> = {
+    UserPraisedPet: { state: 'happy', duration: 1500 },
+    UserCelebratedTogether: { state: 'happy', duration: 2000 },
+    UserCaredAboutPet: { state: 'content', duration: 1200 },
+    UserSharedPersonalStory: { state: 'content', duration: 1200 },
+    UserGotAngry: { state: 'cold', duration: 1500 },
+    UserDismissedPet: { state: 'distant', duration: 1500 },
+    UserIgnoredPet: { state: 'distant', duration: 1200 },
+    NormalChat: { state: 'content', duration: 800 },
+    FirstConversation: { state: 'happy', duration: 2000 },
+    BirthdayCelebrated: { state: 'happy', duration: 2500 },
+    CuriosityTriggered: { state: 'curious', duration: 800 },
+  }
+
+  function playEmotionReaction(eventType: string, loveHateHint: number): Promise<void> {
+    const reaction = EMOTION_REACTION_MAP[eventType] || (loveHateHint > 1 
+      ? { state: 'happy' as AnimationState, duration: 1200 }
+      : loveHateHint < -1
+        ? { state: 'cold' as AnimationState, duration: 1000 }
+        : { state: 'content' as AnimationState, duration: 800 }
+    )
+    return playOneShot(reaction.state, reaction.duration)
+  }
+
   return {
     currentMood,
-    currentIdleAction,
+    currentBehavior,
     currentAnimationState,
     moodConfig,
     isMoving,
-    isPerformingIdle,
+    isPerformingBehavior,
     petX,
     petY,
     facingDirection,
@@ -400,9 +444,10 @@ export function useAnimation() {
     setAnimationState,
     setPersonality,
     playOneShot,
-    triggerIdleAction,
-    startIdleLoop,
-    stopIdleLoop,
+    playEmotionReaction,
+    triggerDailyBehavior,
+    startDailyRoutine,
+    stopDailyRoutine,
     movePetTo,
     resetPosition,
   }

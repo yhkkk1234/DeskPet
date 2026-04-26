@@ -38,7 +38,7 @@ const error = ref('')
 
 const { ghostId, pushSystemMessage, clearMessages, loadHistory } = useChat()
 const chatLoading = ref(false)
-const { currentAnimationState, moodConfig, petX, petY, isFlipped, updateMood, setPersonality, startIdleLoop, stopIdleLoop, playOneShot } = useAnimation()
+const { currentAnimationState, moodConfig, petX, petY, isFlipped, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, playOneShot, playEmotionReaction } = useAnimation()
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
 const showToolbar = ref(false)
@@ -59,13 +59,13 @@ function onPetMouseDown(e: MouseEvent) {
   playOneShot('surprise', 600)
   petY.value = -14
   didDrag = false
-  stopIdleLoop()
+  stopDailyRoutine()
 
   const win = getCurrentWindow()
   const beforePromise = win.outerPosition()
   win.startDragging().finally(() => {
     petY.value = 0
-    startIdleLoop()
+    startDailyRoutine()
     Promise.all([beforePromise, win.outerPosition()]).then(([before, after]) => {
       if (Math.abs(after.x - before.x) > 3 || Math.abs(after.y - before.y) > 3) {
         didDrag = true
@@ -141,7 +141,7 @@ async function generateGhost() {
     clearMessages()
     await loadHistory()
     pushSystemMessage(`${petName.value}的灵魂已注入！点击桌宠或按 Ctrl+Alt+C 开始对话。`)
-    startIdleLoop()
+    startDailyRoutine()
   } catch (e: any) {
     error.value = e.toString()
   } finally {
@@ -164,7 +164,7 @@ async function loadAutosaveGhost(path: string) {
     }
     await loadHistory()
     pushSystemMessage(`${petName.value}的灵魂已恢复！欢迎回来~`)
-    startIdleLoop()
+    startDailyRoutine()
   } catch (e: any) {
     console.warn('自动加载失败，创建新灵魂:', e)
     generateGhost()
@@ -418,11 +418,14 @@ onMounted(async () => {
       ghost.value.loveHate = data.loveHate
       ghost.value.baseline = data.baseline
       updateMood(ghost.value.loveHate, ghost.value.curiosityLevel)
-      if (data.sentiment && data.sentiment.loveHateHint !== 0) {
-        const hint = data.sentiment.loveHateHint > 0
-          ? `(感到${data.sentiment.loveHateHint > 2 ? '很开心' : '有些开心'})`
-          : `(感到${data.sentiment.loveHateHint < -2 ? '很不高兴' : '有点不高兴'})`
-        pushSystemMessage(`情感: ${data.sentiment.eventType} ${hint}`)
+      if (data.sentiment) {
+        playEmotionReaction(data.sentiment.eventType, data.sentiment.loveHateHint)
+        if (data.sentiment.loveHateHint !== 0) {
+          const hint = data.sentiment.loveHateHint > 0
+            ? `(感到${data.sentiment.loveHateHint > 2 ? '很开心' : '有些开心'})`
+            : `(感到${data.sentiment.loveHateHint < -2 ? '很不高兴' : '有点不高兴'})`
+          pushSystemMessage(`情感: ${data.sentiment.eventType} ${hint}`)
+        }
       }
       if (data.impression) {
         ghost.value.impression.overallAffinity = data.impression.overallAffinity
@@ -448,7 +451,7 @@ onUnmounted(() => {
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
   if (chatPostProcessedUnlisten) chatPostProcessedUnlisten()
   document.removeEventListener('keydown', handleEscKey)
-  stopIdleLoop()
+  stopDailyRoutine()
   window.speechSynthesis?.cancel()
 })
 
@@ -500,7 +503,6 @@ async function openChatWindow() {
 async function triggerScreenshot() {
   if (screenshotAnalysisLoading.value) return
   screenshotAnalysisLoading.value = true
-  pushSystemMessage('正在截取屏幕...')
 
   try {
     const base64 = await invoke<string>('capture_screenshot')
@@ -575,12 +577,12 @@ async function movePetToScreenshotRegion() {
     const winLogicalW = winSize.width / scaleFactor
     const winLogicalH = winSize.height / scaleFactor
 
-    const targetScreenX = region.x + region.width + 20
+    const targetScreenX = region.x / scaleFactor + region.width / scaleFactor + 20
     const screenW = window.screen.availWidth
     const screenH = window.screen.availHeight
 
     let finalX = Math.max(0, Math.min(targetScreenX, screenW - winLogicalW))
-    let finalY = Math.max(0, Math.min(region.y - 40, screenH - winLogicalH))
+    let finalY = Math.max(0, Math.min(region.y / scaleFactor - 40, screenH - winLogicalH))
 
     await win.setPosition(new LogicalPosition(Math.round(finalX), Math.round(finalY)))
     petX.value = 0
