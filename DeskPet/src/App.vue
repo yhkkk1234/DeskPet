@@ -38,7 +38,7 @@ const error = ref('')
 
 const { ghostId, pushSystemMessage, clearMessages, loadHistory } = useChat()
 const chatLoading = ref(false)
-const { currentAnimationState, moodConfig, petX, petY, isFlipped, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, playOneShot, playEmotionReaction } = useAnimation()
+const { currentAnimationState, moodConfig, petX, petY, isFlipped, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking } = useAnimation()
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
 const showToolbar = ref(false)
@@ -265,6 +265,8 @@ let autoSaveInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
 let chatHotkeyUnlisten: (() => void) | null = null
 let chatPostProcessedUnlisten: (() => void) | null = null
+let chatTokenUnlisten: (() => void) | null = null
+let chatCompleteUnlisten: (() => void) | null = null
 
 async function loadSpriteJson() {
   try {
@@ -434,6 +436,18 @@ onMounted(async () => {
     chatLoading.value = false
   })
 
+  let speakingActive = false
+  chatTokenUnlisten = await listen('chat:token', () => {
+    if (!speakingActive) {
+      speakingActive = true
+      startSpeaking()
+    }
+  })
+  chatCompleteUnlisten = await listen('chat:complete', () => {
+    speakingActive = false
+    stopSpeaking()
+  })
+
   document.addEventListener('keydown', handleEscKey)
 })
 
@@ -450,6 +464,8 @@ onUnmounted(() => {
   if (hotkeyUnlisten) hotkeyUnlisten()
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
   if (chatPostProcessedUnlisten) chatPostProcessedUnlisten()
+  if (chatTokenUnlisten) chatTokenUnlisten()
+  if (chatCompleteUnlisten) chatCompleteUnlisten()
   document.removeEventListener('keydown', handleEscKey)
   stopDailyRoutine()
   window.speechSynthesis?.cancel()

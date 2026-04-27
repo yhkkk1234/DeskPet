@@ -236,6 +236,10 @@ function toggleAnsweringMode() {
   invoke('set_answering_mode', { mode: newMode }).catch(() => {})
 }
 
+function cancelScreenshot() {
+  pendingScreenShotBase64.value = null
+}
+
 async function closeWindow() {
   window.speechSynthesis?.cancel()
   await chatWindow.close()
@@ -364,6 +368,13 @@ onUnmounted(() => {
           </div>
           <div class="bubble-tail bubble-tail-left"></div>
         </div>
+      </div>
+
+      <!-- Screenshot pending banner -->
+      <div v-if="pendingScreenShotBase64" class="screenshot-banner">
+        <span class="screenshot-banner-icon">📷</span>
+        <span class="screenshot-banner-text">截图已就绪</span>
+        <button class="screenshot-banner-cancel" @click="cancelScreenshot">取消</button>
       </div>
 
       <!-- Input area -->
@@ -564,6 +575,43 @@ onUnmounted(() => {
 
 .chat-messages :deep(.bubble-user) {
   align-self: flex-end;
+}
+
+/* Screenshot banner */
+.screenshot-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255, 152, 0, 0.08);
+  border-top: 1px solid rgba(255, 152, 0, 0.15);
+  flex-shrink: 0;
+}
+
+.screenshot-banner-icon {
+  font-size: 14px;
+}
+
+.screenshot-banner-text {
+  flex: 1;
+  font-size: 12px;
+  color: #e65100;
+  font-weight: 500;
+}
+
+.screenshot-banner-cancel {
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #e65100;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.screenshot-banner-cancel:hover {
+  background: #fff3e0;
 }
 
 /* Input area */

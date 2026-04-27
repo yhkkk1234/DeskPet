@@ -428,6 +428,21 @@ export function useAnimation() {
     return playOneShot(reaction.state, reaction.duration)
   }
 
+  function startSpeaking() {
+    ++animationGen
+    isPerformingBehavior.value = true
+    currentAnimationState.value = 'speaking'
+    stopDailyRoutine()
+  }
+
+  function stopSpeaking() {
+    if (currentAnimationState.value === 'speaking') {
+      currentAnimationState.value = 'idle'
+      isPerformingBehavior.value = false
+    }
+    startDailyRoutine()
+  }
+
   return {
     currentMood,
     currentBehavior,
@@ -444,6 +459,8 @@ export function useAnimation() {
     setAnimationState,
     setPersonality,
     playOneShot,
+    startSpeaking,
+    stopSpeaking,
     playEmotionReaction,
     triggerDailyBehavior,
     startDailyRoutine,
