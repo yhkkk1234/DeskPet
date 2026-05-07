@@ -1,7 +1,9 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { LogicalPosition } from '@tauri-apps/api/dpi'
 
 export type MoodState = 'love_high' | 'love_low' | 'neutral' | 'cold' | 'distant' | 'curious'
-export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise'
+export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise' | 'blink' | 'dragged' | 'walk'
 export type DailyBehavior = 'bounce' | 'wave' | 'look_around' | 'stretch' | 'snooze' | 'poke' | 'spin' | 'shiver' | 'wander' | 'face_left' | 'face_right' | 'teleport' | 'peek'
 export type MovementStyle = 'bouncy' | 'slide' | 'float' | 'walk' | 'teleport'
 export type FacingDirection = 'left' | 'right'
@@ -25,17 +27,23 @@ export const STATE_TO_CSS_CLASS: Record<AnimationState, string> = {
   distant: 'anim-distant',
   speaking: 'anim-speaking',
   surprise: 'anim-surprise',
+  blink: 'anim-blink',
+  dragged: 'anim-dragged',
+  walk: 'anim-walk',
 }
 
 export const STATE_TO_SPRITE_ROW: Record<AnimationState, number> = {
-  idle: 0,
-  happy: 1,
-  content: 2,
-  curious: 3,
-  cold: 4,
-  distant: 5,
-  speaking: 6,
-  surprise: 7,
+  idle: 1,
+  happy: 2,
+  content: 3,
+  curious: 4,
+  cold: 5,
+  distant: 6,
+  speaking: 7,
+  surprise: 8,
+  blink: 0,
+  dragged: 15,
+  walk: 9,
 }
 
 export const STATE_TO_FPS: Record<AnimationState, number> = {
@@ -47,17 +55,23 @@ export const STATE_TO_FPS: Record<AnimationState, number> = {
   distant: 2,
   speaking: 6,
   surprise: 8,
+  blink: 5,
+  dragged: 6,
+  walk: 8,
 }
 
 export const STATE_TO_LOOP: Record<AnimationState, boolean> = {
   idle: true,
   happy: true,
   content: true,
-  curious: true,
+  curious: false,
   cold: true,
   distant: true,
   speaking: true,
   surprise: false,
+  blink: false,
+  dragged: true,
+  walk: true,
 }
 
 const MOOD_CONFIGS: Record<MoodState, MoodAnimationConfig> = {
@@ -140,7 +154,7 @@ const BEHAVIOR_TO_ANIMATION: Record<DailyBehavior, AnimationState> = {
   poke: 'curious',
   spin: 'happy',
   shiver: 'cold',
-  wander: 'content',
+  wander: 'walk',
   face_left: 'idle',
   face_right: 'idle',
   teleport: 'surprise',
@@ -248,15 +262,85 @@ export function useAnimation() {
       if (action === 'wander') {
         const direction = Math.random() < 0.5 ? -1 : 1
         facingDirection.value = direction < 0 ? 'left' : 'right'
-        const distance = 20 + Math.random() * 40
-        const targetX = petX.value + direction * distance
-        const clamped = Math.max(-window.innerWidth * 0.3, Math.min(window.innerWidth * 0.3, targetX))
+        const distance = 60 + Math.random() * 120
         isPerformingBehavior.value = true
-        movePetTo(clamped, petY.value).then(() => {
-          if (animationGen === gen) {
-            isPerformingBehavior.value = false
+
+        const dpiScale = window.devicePixelRatio || 1
+        const win = getCurrentWindow()
+
+        win.outerPosition().then((pos) => {
+          if (animationGen !== gen) { resolve(); return }
+
+          const logicalX = pos.x / dpiScale
+          const logicalY = pos.y / dpiScale
+          const targetX = logicalX + direction * distance
+          const screenW = window.screen.availWidth
+          const screenH = window.screen.availHeight
+          const winW = window.innerWidth
+          const winH = window.innerHeight
+          const clampedX = Math.max(0, Math.min(targetX, screenW - winW))
+          const clampedY = Math.max(0, Math.min(logicalY, screenH - winH))
+
+          if (movementStyle.value === 'teleport') {
+            currentAnimationState.value = 'surprise'
+            setTimeout(() => {
+              if (animationGen !== gen) { resolve(); return }
+              win.setPosition(new LogicalPosition(Math.round(clampedX), Math.round(clampedY)))
+              facingDirection.value = Math.random() < 0.5 ? 'left' : 'right'
+              setTimeout(() => {
+                if (animationGen === gen) {
+                  currentAnimationState.value = 'idle'
+                  isPerformingBehavior.value = false
+                }
+                resolve()
+              }, 300)
+            }, 400)
+          } else {
+            currentAnimationState.value = 'walk'
+            const startTime = performance.now()
+            const walkDuration = 1200
+            const startX = logicalX
+            const startY = logicalY
+            const dx = clampedX - startX
+            const dy = clampedY - startY
+            const easingFn = MOVEMENT_EASING[movementStyle.value]
+            let lastSetPos = 0
+
+            function animateWindow(now: number) {
+              const elapsed = now - startTime
+              const progress = Math.min(1, elapsed / walkDuration)
+              const t = easingFn(progress)
+
+              if (now - lastSetPos > 30 || progress >= 1) {
+                const cx = startX + dx * t
+                const cy = startY + dy * t
+                win.setPosition(new LogicalPosition(Math.round(cx), Math.round(cy)))
+                lastSetPos = now
+              }
+
+              if (progress < 1) {
+                requestAnimationFrame(animateWindow)
+              } else {
+                if (animationGen === gen) {
+                  facingDirection.value = Math.random() < 0.5 ? 'left' : 'right'
+                  currentAnimationState.value = 'idle'
+                  isPerformingBehavior.value = false
+                }
+                resolve()
+              }
+            }
+            requestAnimationFrame(animateWindow)
           }
-          resolve()
+        }).catch(() => {
+          if (animationGen !== gen) { resolve(); return }
+          currentAnimationState.value = 'walk'
+          setTimeout(() => {
+            if (animationGen === gen) {
+              currentAnimationState.value = 'idle'
+              isPerformingBehavior.value = false
+            }
+            resolve()
+          }, 1200)
         })
         return
       }
@@ -287,6 +371,7 @@ export function useAnimation() {
         setTimeout(() => {
           if (animationGen === gen) {
             facingDirection.value = prevFacing
+            currentAnimationState.value = 'idle'
             isPerformingBehavior.value = false
           }
           resolve()
@@ -345,6 +430,47 @@ export function useAnimation() {
     }
   }
 
+  let blinkTimer: ReturnType<typeof setTimeout> | null = null
+
+  function scheduleBlink() {
+    stopBlink()
+    const minDelay = 3000
+    const maxDelay = 8000
+    const delay = minDelay + Math.random() * (maxDelay - minDelay)
+    blinkTimer = setTimeout(() => {
+      if (currentAnimationState.value === 'idle' && !isPerformingBehavior.value && !isMoving.value) {
+        triggerBlink()
+      }
+      scheduleBlink()
+    }, delay)
+  }
+
+  function stopBlink() {
+    if (blinkTimer) {
+      clearTimeout(blinkTimer)
+      blinkTimer = null
+    }
+  }
+
+  function triggerBlink() {
+    ++animationGen
+    currentAnimationState.value = 'blink'
+  }
+
+  function onAnimationComplete() {
+    if (currentAnimationState.value === 'blink') {
+      currentAnimationState.value = 'idle'
+    }
+  }
+
+  watch(currentAnimationState, (newState) => {
+    if (newState === 'idle') {
+      scheduleBlink()
+    } else {
+      stopBlink()
+    }
+  })
+
   function movePetTo(targetX: number, targetY: number): Promise<void> {
     return new Promise((resolve) => {
       isMoving.value = true
@@ -361,7 +487,7 @@ export function useAnimation() {
       }
 
       const style = movementStyle.value
-      const baseDuration = style === 'teleport' ? 0 : Math.min(800, Math.max(300, dist * 2))
+      const baseDuration = style === 'teleport' ? 0 : Math.min(1200, Math.max(600, dist * 5))
       const easingFn = MOVEMENT_EASING[style]
 
       if (baseDuration === 0) {
@@ -415,7 +541,7 @@ export function useAnimation() {
     NormalChat: { state: 'content', duration: 800 },
     FirstConversation: { state: 'happy', duration: 2000 },
     BirthdayCelebrated: { state: 'happy', duration: 2500 },
-    CuriosityTriggered: { state: 'curious', duration: 800 },
+    CuriosityTriggered: { state: 'curious', duration: 2000 },
   }
 
   function playEmotionReaction(eventType: string, loveHateHint: number): Promise<void> {
@@ -467,5 +593,6 @@ export function useAnimation() {
     stopDailyRoutine,
     movePetTo,
     resetPosition,
+    onAnimationComplete,
   }
 }

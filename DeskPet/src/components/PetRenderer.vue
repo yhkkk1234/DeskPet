@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AnimationState, MoodAnimationConfig } from '../composables/useAnimation'
-import type { RendererType, SpriteConfig, LottieConfig, TagFrameRange } from '../composables/usePetRenderer'
+import type { RendererType, SpriteConfig, LottieConfig, TagFrameRange, FramePosition } from '../composables/usePetRenderer'
 import PetCSSRenderer from './PetCSSRenderer.vue'
 import PetSpriteRenderer from './PetSpriteRenderer.vue'
 import PetLottieRenderer from './PetLottieRenderer.vue'
@@ -16,6 +16,7 @@ const props = defineProps<{
   lottieConfig: LottieConfig
   tagRanges: Map<string, TagFrameRange>
   frameDurations: Map<number, number>
+  framePositions: Map<number, FramePosition>
   isFlipped: boolean
 }>()
 
@@ -40,6 +41,8 @@ const emit = defineEmits<{
       :config="spriteConfig"
       :tag-ranges="tagRanges"
       :frame-durations="frameDurations"
+      :frame-positions="framePositions"
+      :style-override="styleOverride"
       @animation-complete="emit('animationComplete')"
     />
     <PetLottieRenderer

@@ -52,7 +52,7 @@ import { computed } from 'vue'
 }
 
 .anim-curious {
-  animation: animCurious 1.2s ease-in-out infinite;
+  animation: animCurious 1.2s ease-in-out forwards;
 }
 
 .anim-cold {
@@ -69,6 +69,14 @@ import { computed } from 'vue'
 
 .anim-surprise {
   animation: animSurprise 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+}
+
+.anim-dragged {
+  animation: animDragged 0.8s ease-in-out infinite;
+}
+
+.anim-walk {
+  animation: animWalk 0.4s step-end infinite;
 }
 
 @keyframes idleBounce {
@@ -122,5 +130,18 @@ import { computed } from 'vue'
   50% { transform: translateY(-8px) scale(1.05); }
   75% { transform: translateY(4px) scale(0.95); }
   100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes animDragged {
+  0%, 100% { transform: translateY(-4px) scale(0.95); }
+  50% { transform: translateY(-10px) scale(0.92); }
+}
+
+@keyframes animWalk {
+  0% { transform: translateX(-2px) scale(1); }
+  25% { transform: translateX(2px) scale(1.02); }
+  50% { transform: translateX(-1px) scale(0.98); }
+  75% { transform: translateX(3px) scale(1.01); }
+  100% { transform: translateX(-2px) scale(1); }
 }
 </style>

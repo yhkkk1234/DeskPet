@@ -42,14 +42,23 @@ export type TagFrameRange = {
   frameCount: number
 }
 
+export interface FramePosition {
+  x: number
+  y: number
+}
+
+const TAG_ALIASES: Record<string, string[]> = {
+  speak: ['speaking'],
+}
+
 const DEFAULT_SPRITE_CONFIG: SpriteConfig = {
   src: '/pet/pet_spritesheet.png',
   jsonSrc: '/pet/pet_spritesheet.json',
-  frameWidth: 64,
-  frameHeight: 64,
-  scale: 2,
-  rows: 8,
-  cols: 8,
+  frameWidth: 128,
+  frameHeight: 128,
+  scale: 1,
+  rows: 22,
+  cols: 9,
 }
 
 const DEFAULT_LOTTIE_CONFIG: LottieConfig = {
@@ -63,6 +72,7 @@ export function usePetRenderer() {
   const rendererReady = ref(false)
   const tagRanges = ref<Map<string, TagFrameRange>>(new Map())
   const frameDurations = ref<Map<number, number>>(new Map())
+  const framePositions = ref<Map<number, FramePosition>>(new Map())
 
   function setRenderer(type: RendererType) {
     rendererType.value = type
@@ -84,24 +94,37 @@ export function usePetRenderer() {
   function parseAsepriteJson(json: AsepriteJson) {
     const ranges = new Map<string, TagFrameRange>()
     const durations = new Map<number, number>()
+    const positions = new Map<number, FramePosition>()
 
     for (const tag of json.meta.frameTags) {
       const normalizedName = tag.name.toLowerCase()
       const frameCount = tag.to - tag.from + 1
-      ranges.set(normalizedName, {
+      const range = {
         from: tag.from,
         to: tag.to,
         frameCount,
-      })
+      }
+      ranges.set(normalizedName, range)
+      const aliases = TAG_ALIASES[normalizedName]
+      if (aliases) {
+        for (const alias of aliases) {
+          ranges.set(alias, range)
+        }
+      }
     }
 
     const frames = Object.values(json.frames)
     for (let i = 0; i < frames.length; i++) {
       durations.set(i, frames[i].duration)
+      positions.set(i, {
+        x: frames[i].frame.x,
+        y: frames[i].frame.y,
+      })
     }
 
     tagRanges.value = ranges
     frameDurations.value = durations
+    framePositions.value = positions
   }
 
   function getTagRange(stateName: string): TagFrameRange | null {
@@ -119,6 +142,7 @@ export function usePetRenderer() {
     rendererReady,
     tagRanges,
     frameDurations,
+    framePositions,
     setRenderer,
     setSpriteConfig,
     setLottieConfig,

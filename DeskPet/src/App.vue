@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { LogicalPosition } from '@tauri-apps/api/dpi'
+import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import PetRenderer from './components/PetRenderer.vue'
 import { useChat } from './composables/useChat'
@@ -38,39 +38,81 @@ const error = ref('')
 
 const { ghostId, pushSystemMessage, clearMessages, loadHistory } = useChat()
 const chatLoading = ref(false)
-const { currentAnimationState, moodConfig, petX, petY, isFlipped, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking } = useAnimation()
-const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
+const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation()
+const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, framePositions, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
 const showToolbar = ref(false)
 let didDrag = false
 let toolbarHideTimer: ReturnType<typeof setTimeout> | null = null
+let shrinkTimer: ReturnType<typeof setTimeout> | null = null
+let windowExpanded = false
+
+const COLLAPSED_W = 150
+const COLLAPSED_H = 158
+const EXPANDED_W = 240
+const EXPANDED_H = 195
+
+async function expandWindow() {
+  if (windowExpanded) return
+  windowExpanded = true
+  const win = getCurrentWindow()
+  await win.setSize(new LogicalSize(EXPANDED_W, EXPANDED_H))
+}
+
+async function shrinkWindow() {
+  if (!windowExpanded) return
+  windowExpanded = false
+  const win = getCurrentWindow()
+  await win.setSize(new LogicalSize(COLLAPSED_W, COLLAPSED_H))
+}
 
 function onHover(visible: boolean) {
   if (visible) {
     if (toolbarHideTimer) { clearTimeout(toolbarHideTimer); toolbarHideTimer = null }
+    if (shrinkTimer) { clearTimeout(shrinkTimer); shrinkTimer = null }
     showToolbar.value = true
+    expandWindow()
   } else {
-    toolbarHideTimer = setTimeout(() => { showToolbar.value = false }, 250)
+    toolbarHideTimer = setTimeout(() => {
+      showToolbar.value = false
+      shrinkTimer = setTimeout(shrinkWindow, 200)
+    }, 250)
   }
 }
 
 function onPetMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
-  playOneShot('surprise', 600)
+  currentAnimationState.value = 'dragged'
+  isPerformingBehavior.value = true
   petY.value = -14
   didDrag = false
   stopDailyRoutine()
 
   const win = getCurrentWindow()
-  const beforePromise = win.outerPosition()
-  win.startDragging().finally(() => {
-    petY.value = 0
-    startDailyRoutine()
-    Promise.all([beforePromise, win.outerPosition()]).then(([before, after]) => {
-      if (Math.abs(after.x - before.x) > 3 || Math.abs(after.y - before.y) > 3) {
-        didDrag = true
-      }
-    })
+  const startMouseX = e.screenX
+  const startMouseY = e.screenY
+
+  win.outerPosition().then((pos) => {
+    const dpiScale = window.devicePixelRatio
+    const offsetX = pos.x / dpiScale - startMouseX
+    const offsetY = pos.y / dpiScale - startMouseY
+    let moved = false
+
+    const onMove = (me: MouseEvent) => {
+      moved = true
+      win.setPosition(new LogicalPosition(me.screenX + offsetX, me.screenY + offsetY))
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      currentAnimationState.value = 'idle'
+      isPerformingBehavior.value = false
+      petY.value = 0
+      startDailyRoutine()
+      if (moved) didDrag = true
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
   })
 }
 
@@ -697,40 +739,44 @@ const transferParticles = computed(() => {
 
 <template>
   <div class="pet-app">
-    <!-- Hover toolbar (floating above pet) -->
-    <transition name="toolbar-fade">
-      <div v-if="showToolbar" class="hover-toolbar" @click.stop @mouseenter="onHover(true)" @mouseleave="onHover(false)">
-        <div class="hover-info">
-          <span class="hover-pet-name">{{ petName }} <span class="hover-lh-score" :style="{ color: affinityColor }">{{ ghost?.loveHate.toFixed(0) }}</span></span>
-          <span class="hover-mood-text">{{ moodText }} · 印象 {{ ghost?.impression.overallAffinity.toFixed(0) }}</span>
-          <div class="hover-mood-bar">
-            <div class="hover-mood-fill" :style="{ width: loveHatePercent + '%', background: affinityColor }"></div>
+    <!-- Pet column: fixed-width container so pet doesn't shift on window resize -->
+    <div class="pet-column" @mouseenter="onHover(true)" @mouseleave="onHover(false)">
+      <div class="pet-area" @click="handlePetClick" @mousedown.prevent="onPetMouseDown">
+        <PetRenderer
+          :animation-state="currentAnimationState"
+          :mood-config="moodConfig"
+          :emoji="petEmoji"
+          :css-class="petCssClass"
+          :style-override="{ transform: `translate(${petX}px, ${petY}px)` }"
+          :renderer-type="rendererType"
+          :sprite-config="spriteConfig"
+          :lottie-config="lottieConfig"
+          :tag-ranges="tagRanges"
+          :frame-durations="frameDurations"
+          :frame-positions="framePositions"
+          :is-flipped="isFlipped"
+          @animation-complete="onAnimationComplete"
+        />
+      </div>
+
+      <!-- Hover toolbar (centered below pet) -->
+      <transition name="toolbar-fade">
+        <div v-if="showToolbar" class="hover-toolbar" @click.stop>
+          <div class="hover-info">
+            <span class="hover-pet-name">{{ petName }} <span class="hover-lh-score" :style="{ color: affinityColor }">{{ ghost?.loveHate.toFixed(0) }}</span></span>
+            <span class="hover-mood-text">{{ moodText }} · 印象 {{ ghost?.impression.overallAffinity.toFixed(0) }}</span>
+            <div class="hover-mood-bar">
+              <div class="hover-mood-fill" :style="{ width: loveHatePercent + '%', background: affinityColor }"></div>
+            </div>
+          </div>
+          <div class="hover-actions">
+            <button @click.stop="openChatWindow" title="对话 (Ctrl+Alt+C)">💬</button>
+            <button @click.stop="triggerScreenshot" title="截图 (Ctrl+Alt+X)">📸</button>
+            <button @click.stop="openSettingsWindow" title="设置">⚙️</button>
           </div>
         </div>
-        <div class="hover-actions">
-          <button @click.stop="openChatWindow" title="对话 (Ctrl+Alt+C)">💬</button>
-          <button @click.stop="triggerScreenshot" title="截图 (Ctrl+Alt+X)">📸</button>
-          <button @click.stop="openSettingsWindow" title="设置">⚙️</button>
-        </div>
-      </div>
-    </transition>
-
-    <!-- Pet -->
-    <div class="pet-area" @mouseenter="onHover(true)" @mouseleave="onHover(false)" @click="handlePetClick" @mousedown.prevent="onPetMouseDown">
-      <PetRenderer
-        :animation-state="currentAnimationState"
-        :mood-config="moodConfig"
-        :emoji="petEmoji"
-        :css-class="petCssClass"
-        :style-override="{ transform: `translate(${petX}px, ${petY}px)` }"
-        :renderer-type="rendererType"
-        :sprite-config="spriteConfig"
-        :lottie-config="lottieConfig"
-        :tag-ranges="tagRanges"
-        :frame-durations="frameDurations"
-        :is-flipped="isFlipped"
-      />
-    </div>
+      </transition>
+    </div><!-- /pet-column -->
 
     <div v-if="screenshotAnalysisLoading" class="screenshot-analysis-loading">
       <div class="loading-spinner"></div>
@@ -839,12 +885,17 @@ const transferParticles = computed(() => {
   position: fixed;
   top: 0;
   left: 0;
-  overflow: hidden;
   background: transparent;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 13px;
   color: #333;
   user-select: none;
+}
+
+/* Pet Column */
+.pet-column {
+  position: relative;
+  width: 150px;
 }
 
 /* Pet Area */
@@ -853,7 +904,7 @@ const transferParticles = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 8px 4px 4px;
+  padding: 8px 4px 0;
   cursor: grab;
 }
 
@@ -865,20 +916,19 @@ const transferParticles = computed(() => {
 /* Hover toolbar */
 .hover-toolbar {
   position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 100%;
+  left: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 10px;
+  padding: 5px 10px 7px;
   background: rgba(255, 255, 255, 0.92);
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
-  z-index: 200;
   white-space: nowrap;
   -webkit-app-region: no-drag;
   pointer-events: auto;
+  z-index: 200;
 }
 
 .hover-info {
@@ -948,7 +998,7 @@ const transferParticles = computed(() => {
 .toolbar-fade-enter-active { transition: all 0.2s ease; }
 .toolbar-fade-leave-active { transition: all 0.15s ease; }
 .toolbar-fade-enter-from,
-.toolbar-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(4px); }
+.toolbar-fade-leave-to { opacity: 0; transform: translateY(-4px); }
 
 .btn-transfer-complete {
   background: linear-gradient(135deg, #ff6b9d, #c084fc);

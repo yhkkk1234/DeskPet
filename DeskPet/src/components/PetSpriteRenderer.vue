@@ -2,13 +2,15 @@
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import type { AnimationState } from '../composables/useAnimation'
 import { STATE_TO_SPRITE_ROW, STATE_TO_FPS, STATE_TO_LOOP } from '../composables/useAnimation'
-import type { SpriteConfig, TagFrameRange } from '../composables/usePetRenderer'
+import type { SpriteConfig, TagFrameRange, FramePosition } from '../composables/usePetRenderer'
 
 const props = defineProps<{
   animationState: AnimationState
   config: SpriteConfig
   tagRanges: Map<string, TagFrameRange>
   frameDurations: Map<number, number>
+  framePositions: Map<number, FramePosition>
+  styleOverride: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -26,7 +28,7 @@ let animFrameId: number | null = null
 let transitioning = false
 let transitionAlpha = 1
 let previousSnapshot: HTMLCanvasElement | null = null
-const CROSSFADE_MS = 200
+const CROSSFADE_MS = 0
 
 function getTagRange(): TagFrameRange | null {
   return props.tagRanges.get(props.animationState) ?? null
@@ -73,7 +75,8 @@ function getSpriteX(_frameIndex: number): number {
   const range = getTagRange()
   if (range) {
     const absoluteIndex = range.from + currentFrame
-    return (absoluteIndex % props.config.cols) * props.config.frameWidth
+    const pos = props.framePositions.get(absoluteIndex)
+    if (pos) return pos.x
   }
   return (currentFrame % props.config.cols) * props.config.frameWidth
 }
@@ -82,7 +85,8 @@ function getSpriteY(_frameIndex: number): number {
   const range = getTagRange()
   if (range) {
     const absoluteIndex = range.from + currentFrame
-    return Math.floor(absoluteIndex / props.config.cols) * props.config.frameHeight
+    const pos = props.framePositions.get(absoluteIndex)
+    if (pos) return pos.y
   }
   const row = STATE_TO_SPRITE_ROW[props.animationState] ?? 0
   return row * props.config.frameHeight
@@ -237,7 +241,7 @@ const canvasHeight = computed(() => props.config.frameHeight * props.config.scal
 </script>
 
 <template>
-  <div class="pet-sprite-canvas-wrapper">
+  <div class="pet-sprite-canvas-wrapper" :style="styleOverride">
     <canvas
       v-if="imageLoaded"
       ref="canvas"
