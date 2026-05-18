@@ -18,18 +18,6 @@ pub async fn capture_screenshot() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn capture_region(x: i32, y: i32, width: i32, height: i32) -> Result<String, String> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(15),
-        tokio::task::spawn_blocking(move || ScreenshotService::capture_region(x, y, width, height)),
-    )
-    .await
-    .map_err(|_| "截图超时（15秒），请重试".into())
-    .and_then(|r| r.map_err(|e| format!("截图任务失败: {}", e)))
-    .and_then(|r| r)
-}
-
-#[tauri::command]
 pub fn store_screenshot_data(data: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut screenshot_data = state.screenshot_data.lock().map_err(|e| e.to_string())?;
     *screenshot_data = Some(data);

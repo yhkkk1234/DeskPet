@@ -3,8 +3,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
 
 export type MoodState = 'love_high' | 'love_low' | 'neutral' | 'cold' | 'distant' | 'curious'
-export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise' | 'blink' | 'dragged' | 'walk'
-export type DailyBehavior = 'bounce' | 'wave' | 'look_around' | 'stretch' | 'snooze' | 'poke' | 'spin' | 'shiver' | 'wander' | 'face_left' | 'face_right' | 'teleport' | 'peek'
+export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise' | 'blink' | 'dragged' | 'walk' | 'yawn' | 'sleep' | 'pout' | 'stretch'
+export type DailyBehavior = 'bounce' | 'wave' | 'look_around' | 'stretch' | 'yawn' | 'sleep' | 'pout' | 'poke' | 'spin' | 'shiver' | 'wander' | 'face_left' | 'face_right' | 'teleport' | 'peek'
 export type MovementStyle = 'bouncy' | 'slide' | 'float' | 'walk' | 'teleport'
 export type FacingDirection = 'left' | 'right'
 
@@ -30,6 +30,10 @@ export const STATE_TO_CSS_CLASS: Record<AnimationState, string> = {
   blink: 'anim-blink',
   dragged: 'anim-dragged',
   walk: 'anim-walk',
+  yawn: 'anim-yawn',
+  sleep: 'anim-sleep',
+  pout: 'anim-pout',
+  stretch: 'anim-stretch',
 }
 
 export const STATE_TO_SPRITE_ROW: Record<AnimationState, number> = {
@@ -44,6 +48,10 @@ export const STATE_TO_SPRITE_ROW: Record<AnimationState, number> = {
   blink: 0,
   dragged: 15,
   walk: 9,
+  yawn: 10,
+  sleep: 12,
+  pout: 16,
+  stretch: 11,
 }
 
 export const STATE_TO_FPS: Record<AnimationState, number> = {
@@ -58,6 +66,10 @@ export const STATE_TO_FPS: Record<AnimationState, number> = {
   blink: 5,
   dragged: 6,
   walk: 8,
+  yawn: 4,
+  sleep: 3,
+  pout: 4,
+  stretch: 5,
 }
 
 export const STATE_TO_LOOP: Record<AnimationState, boolean> = {
@@ -72,6 +84,10 @@ export const STATE_TO_LOOP: Record<AnimationState, boolean> = {
   blink: false,
   dragged: true,
   walk: true,
+  yawn: true,
+  sleep: true,
+  pout: false,
+  stretch: false,
 }
 
 const MOOD_CONFIGS: Record<MoodState, MoodAnimationConfig> = {
@@ -104,7 +120,7 @@ const MOOD_CONFIGS: Record<MoodState, MoodAnimationConfig> = {
   },
   cold: {
     mood: 'cold',
-    animations: ['shiver', 'snooze', 'face_left'],
+    animations: ['shiver', 'pout', 'yawn', 'face_left'],
     idleFrequency: 12,
     expression: '😒',
     bounceSpeed: 3.0,
@@ -113,7 +129,7 @@ const MOOD_CONFIGS: Record<MoodState, MoodAnimationConfig> = {
   },
   distant: {
     mood: 'distant',
-    animations: ['snooze', 'face_left'],
+    animations: ['yawn', 'sleep', 'face_left'],
     idleFrequency: 18,
     expression: '😤',
     bounceSpeed: 3.5,
@@ -149,8 +165,10 @@ const BEHAVIOR_TO_ANIMATION: Record<DailyBehavior, AnimationState> = {
   bounce: 'happy',
   wave: 'content',
   look_around: 'curious',
-  stretch: 'idle',
-  snooze: 'distant',
+  stretch: 'stretch',
+  yawn: 'yawn',
+  sleep: 'sleep',
+  pout: 'pout',
   poke: 'curious',
   spin: 'happy',
   shiver: 'cold',
@@ -382,7 +400,7 @@ export function useAnimation() {
       currentAnimationState.value = BEHAVIOR_TO_ANIMATION[action]
       isPerformingBehavior.value = true
 
-      const duration = action === 'snooze' ? 3000 : action === 'spin' ? 1200 : 800
+      const duration = action === 'sleep' ? 4000 : action === 'yawn' ? 3000 : action === 'pout' ? 2000 : action === 'spin' ? 1200 : 800
       setTimeout(() => {
         if (animationGen === gen) {
           currentAnimationState.value = 'idle'

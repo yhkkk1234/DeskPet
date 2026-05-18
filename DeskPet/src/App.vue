@@ -306,6 +306,8 @@ let tickInterval: ReturnType<typeof setInterval> | null = null
 let autoSaveInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
 let chatHotkeyUnlisten: (() => void) | null = null
+let settingsHotkeyUnlisten: (() => void) | null = null
+let quitHotkeyUnlisten: (() => void) | null = null
 let chatPostProcessedUnlisten: (() => void) | null = null
 let chatTokenUnlisten: (() => void) | null = null
 let chatCompleteUnlisten: (() => void) | null = null
@@ -412,6 +414,16 @@ onMounted(async () => {
     handleChatHotkey()
   })
 
+  settingsHotkeyUnlisten = await listen('settings-hotkey', () => {
+    openSettingsWindow()
+  })
+
+  quitHotkeyUnlisten = await listen('quit-hotkey', async () => {
+    await autoSaveGhost()
+    const win = getCurrentWindow()
+    await win.close()
+  })
+
   await listen('settings-updated', async (event: any) => {
     const section = event.payload?.section
     if (section === 'renderer') {
@@ -505,6 +517,8 @@ onUnmounted(() => {
   if (autoSaveInterval) clearInterval(autoSaveInterval)
   if (hotkeyUnlisten) hotkeyUnlisten()
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
+  if (settingsHotkeyUnlisten) settingsHotkeyUnlisten()
+  if (quitHotkeyUnlisten) quitHotkeyUnlisten()
   if (chatPostProcessedUnlisten) chatPostProcessedUnlisten()
   if (chatTokenUnlisten) chatTokenUnlisten()
   if (chatCompleteUnlisten) chatCompleteUnlisten()
@@ -772,7 +786,7 @@ const transferParticles = computed(() => {
           <div class="hover-actions">
             <button @click.stop="openChatWindow" title="对话 (Ctrl+Alt+C)">💬</button>
             <button @click.stop="triggerScreenshot" title="截图 (Ctrl+Alt+X)">📸</button>
-            <button @click.stop="openSettingsWindow" title="设置">⚙️</button>
+            <button @click.stop="openSettingsWindow" title="设置 (Ctrl+Alt+S)">⚙️</button>
           </div>
         </div>
       </transition>

@@ -20,5 +20,21 @@ pub fn try_register_hotkey(app: &tauri::AppHandle) -> Result<(), String> {
     })
     .map_err(|e| format!("Failed to register chat hotkey: {}", e))?;
 
+    let settings_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyS);
+    gs.on_shortcut(settings_shortcut, |app, _shortcut, event| {
+        if event.state == ShortcutState::Pressed {
+            let _ = app.emit("settings-hotkey", ());
+        }
+    })
+    .map_err(|e| format!("Failed to register settings hotkey: {}", e))?;
+
+    let quit_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyQ);
+    gs.on_shortcut(quit_shortcut, |app, _shortcut, event| {
+        if event.state == ShortcutState::Pressed {
+            let _ = app.emit("quit-hotkey", ());
+        }
+    })
+    .map_err(|e| format!("Failed to register quit hotkey: {}", e))?;
+
     Ok(())
 }

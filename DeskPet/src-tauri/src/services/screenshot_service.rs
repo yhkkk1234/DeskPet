@@ -18,17 +18,6 @@ impl ScreenshotService {
         }
     }
 
-    pub fn capture_region(x: i32, y: i32, width: i32, height: i32) -> Result<String, String> {
-        #[cfg(target_os = "windows")]
-        {
-            capture_region_win32(x, y, width, height)
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            let _ = (x, y, width, height);
-            Err("Screenshot capture is only supported on Windows".into())
-        }
-    }
 }
 
 #[cfg(target_os = "windows")]
@@ -102,15 +91,6 @@ fn capture_screen_win32() -> Result<String, String> {
 
         let pixels = capture_rect(0, 0, w, h)?;
         let png_data = encode_rgba_as_png(w as u32, h as u32, &pixels)?;
-        Ok(base64::engine::general_purpose::STANDARD.encode(&png_data))
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn capture_region_win32(x: i32, y: i32, width: i32, height: i32) -> Result<String, String> {
-    unsafe {
-        let pixels = capture_rect(x, y, width, height)?;
-        let png_data = encode_rgba_as_png(width as u32, height as u32, &pixels)?;
         Ok(base64::engine::general_purpose::STANDARD.encode(&png_data))
     }
 }

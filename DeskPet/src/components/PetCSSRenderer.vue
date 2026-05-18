@@ -79,6 +79,22 @@ import { computed } from 'vue'
   animation: animWalk 0.4s step-end infinite;
 }
 
+.anim-yawn {
+  animation: animYawn 1.5s ease-in-out infinite;
+}
+
+.anim-sleep {
+  animation: animSleep 3s ease-in-out infinite;
+}
+
+.anim-pout {
+  animation: animPout 0.8s ease-in-out 1;
+}
+
+.anim-stretch {
+  animation: animStretch 1s ease-in-out 1;
+}
+
 @keyframes idleBounce {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-4px); }
@@ -143,5 +159,32 @@ import { computed } from 'vue'
   50% { transform: translateX(-1px) scale(0.98); }
   75% { transform: translateX(3px) scale(1.01); }
   100% { transform: translateX(-2px) scale(1); }
+}
+
+@keyframes animYawn {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  25% { transform: scale(1.06) rotate(-5deg); }
+  50% { transform: scale(1.02) rotate(-2deg); }
+  75% { transform: scale(1.08) rotate(3deg); }
+}
+
+@keyframes animSleep {
+  0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  30% { transform: scale(0.95) rotate(-5deg); opacity: 0.8; }
+  60% { transform: scale(0.93) rotate(3deg); opacity: 0.7; }
+}
+
+@keyframes animPout {
+  0% { transform: translateX(0) scale(1); }
+  30% { transform: translateX(-4px) scale(0.95) rotate(-8deg); }
+  60% { transform: translateX(2px) scale(0.97) rotate(5deg); }
+  100% { transform: translateX(0) scale(1); }
+}
+
+@keyframes animStretch {
+  0% { transform: scale(1) translateY(0); }
+  30% { transform: scale(1.1) translateY(-6px); }
+  60% { transform: scale(1.05) translateY(-3px); }
+  100% { transform: scale(1) translateY(0); }
 }
 </style>
