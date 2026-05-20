@@ -86,6 +86,7 @@ pub fn get_ghost_status(state: State<'_, AppState>) -> Result<String, String> {
                 "snippetCount": ghost.soul.impression.general_impression_snippets.len(),
             },
             "curiosityLevel": format!("{:?}", ghost.soul.curiosity.level),
+            "persona": ghost.persona,
         })
         .to_string()),
         None => Err("No ghost loaded".into()),
@@ -587,4 +588,62 @@ pub fn rename_ghost(new_name: String, state: State<'_, AppState>) -> Result<Stri
     let ghost = locked.as_mut().ok_or("No ghost loaded")?;
     ghost.name = name;
     Ok(ghost.name.clone())
+}
+
+/// 修改或清空角色人设
+#[tauri::command]
+pub fn update_persona(persona: String, state: State<'_, AppState>) -> Result<String, String> {
+    let mut locked = state.ghost.lock().map_err(|e| e.to_string())?;
+    let ghost = locked.as_mut().ok_or("No ghost loaded")?;
+    let trimmed = persona.trim().to_string();
+    ghost.persona = if trimmed.is_empty() { None } else { Some(trimmed) };
+    Ok(ghost.persona.clone().unwrap_or_default())
+}
+
+/// 根据性格数值自动生成人设
+#[tauri::command]
+pub async fn generate_persona(state: State<'_, AppState>) -> Result<String, String> {
+    let personality = {
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        let ghost = locked.as_ref().ok_or("No ghost loaded")?;
+        ghost.soul.innate_tendency.self_dims.clone()
+    };
+
+    let prompt = format!(
+        "根据以下性格数值，用30-50字写一段简洁的角色简介，描述一个住在桌面上的虚拟角色：\n\
+         - 开放性：{:.0}%\n\
+         - 尽责性：{:.0}%\n\
+         - 外向性：{:.0}%\n\
+         - 宜人性：{:.0}%\n\
+         - 情绪稳定性：{:.0}%\n\
+         - 创造力：{:.0}%\n\n\
+         只输出角色简介，不要评价、不要多余文字。",
+        personality.openness * 100.0,
+        personality.conscientiousness * 100.0,
+        personality.extraversion * 100.0,
+        personality.agreeableness * 100.0,
+        (1.0 - personality.neuroticism) * 100.0,
+        personality.creativity * 100.0,
+    );
+
+    let ai_config = {
+        let locked = state.ai_config.lock().map_err(|e| e.to_string())?;
+        locked.as_ref().ok_or("AI 接口未配置")?.clone()
+    };
+
+    let ai_service = AIService::new(ai_config);
+    let response = ai_service.chat(&prompt, &[]).await?;
+
+    let persona = response.trim().to_string();
+    if persona.is_empty() {
+        return Err("AI 生成了空的人设，请重试".into());
+    }
+
+    {
+        let mut locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        let ghost = locked.as_mut().ok_or("No ghost loaded")?;
+        ghost.persona = Some(persona.clone());
+    }
+
+    Ok(persona)
 }

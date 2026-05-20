@@ -15,6 +15,7 @@ pub struct Ghost {
     pub body: BodyConfig,
     pub soul: Soul,
     pub name: String,
+    pub persona: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +64,7 @@ impl Ghost {
             },
             soul,
             name: name.unwrap_or_else(|| "未命名".into()),
+            persona: None,
         }
     }
 

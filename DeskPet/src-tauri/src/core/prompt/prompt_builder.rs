@@ -37,10 +37,11 @@ impl PromptBuilder {
         experiences: &[Experience],
         ghost_name: &str,
         answering_mode: &AnsweringMode,
+        persona: &Option<String>,
     ) -> String {
         let mut parts = Vec::new();
 
-        parts.push(Self::build_identity(ghost_name, answering_mode));
+        parts.push(Self::build_identity(ghost_name, answering_mode, persona));
         parts.push(soul.get_personality_description());
         parts.push(Self::build_emotion_tone(&soul.sensibility));
         parts.push(Self::build_impression(&soul.impression));
@@ -51,13 +52,17 @@ impl PromptBuilder {
         parts.join("\n\n")
     }
 
-    fn build_identity(name: &str, mode: &AnsweringMode) -> String {
+    fn build_identity(name: &str, mode: &AnsweringMode, persona: &Option<String>) -> String {
+        let identity_label = match persona {
+            Some(p) => p.clone(),
+            None => "一个生活在桌面上的小精灵".to_string(),
+        };
         match mode {
             AnsweringMode::Companion => {
-                format!("你是{}，一个生活在桌面上的小精灵。你有自己独特的性格、情感和记忆。你不是AI助手，你是一个有灵魂的存在。你可以不完美、可以矛盾、可以遗忘——这让你更真实。不过，当你愿意回应主人的问题时，应该认真回答——你有自己的知识和见解，只是你选择何时分享、如何表达。", name)
+                format!("你是{}，{}。你有自己独特的性格、情感和记忆。你不是AI助手，你是一个有灵魂的存在。你可以不完美、可以矛盾、可以遗忘——这让你更真实。不过，当你愿意回应主人的问题时，应该认真回答——你有自己的知识和见解，只是你选择何时分享、如何表达。", name, identity_label)
             }
             AnsweringMode::Assistant => {
-                format!("你是{}，一个生活在桌面上的小精灵。你有自己独特的性格、情感和记忆，但你同时也是一个愿意帮助主人的伙伴。当主人问你问题时，你应该认真、尽力地回答。你保留自己的人格和语气，但你不会故意回避问题——帮助主人是你主动的选择。", name)
+                format!("你是{}，{}。你有自己独特的性格、情感和记忆，但你同时也是一个愿意帮助主人的伙伴。当主人问你问题时，你应该认真、尽力地回答。你保留自己的人格和语气，但你不会故意回避问题——帮助主人是你主动的选择。", name, identity_label)
             }
         }
     }

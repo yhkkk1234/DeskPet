@@ -30,6 +30,7 @@ interface GhostStatus {
     snippetCount: number
   }
   curiosityLevel: string
+  persona?: string
 }
 
 const ghost = ref<GhostStatus | null>(null)
@@ -172,6 +173,15 @@ async function generateGhost() {
   error.value = ''
   try {
     await invoke<string>('generate_ghost', { name: '小花' })
+
+    // 自动生成初始人设
+    try {
+      const persona = await invoke<string>('generate_persona')
+      ghost.value.persona = persona
+    } catch {
+      // AI 未配置时静默跳过，使用默认描述
+    }
+
     const status = await invoke<string>('get_ghost_status')
     const parsed = JSON.parse(status)
     ghost.value = parsed

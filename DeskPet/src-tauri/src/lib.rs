@@ -56,6 +56,8 @@ pub fn run() {
             commands::ghost_commands::curiosity_research,
             commands::ghost_commands::generate_dream,
             commands::ghost_commands::rename_ghost,
+            commands::ghost_commands::update_persona,
+            commands::ghost_commands::generate_persona,
             commands::chat_commands::chat_with_pet,
             commands::chat_commands::configure_ai,
             commands::chat_commands::init_database,

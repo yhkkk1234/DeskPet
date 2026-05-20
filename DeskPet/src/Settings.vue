@@ -36,6 +36,49 @@ const diaryEntries = ref<Array<{ id: string; entryDate: string; summary: string 
 const diaryExpanded = ref<Record<string, boolean>>({})
 const renameInput = ref('')
 const renaming = ref(false)
+const personaText = ref('')
+const generatingPersona = ref(false)
+
+async function savePersona() {
+  if (!ghost.value) return
+  try {
+    const result = await invoke<string>('update_persona', { persona: personaText.value })
+    ghost.value.persona = result || undefined
+    showSuccess('人设已更新')
+    await emit('settings-updated', { section: 'ghost' })
+  } catch (e: any) {
+    showError('保存人设失败: ' + e)
+  }
+}
+
+async function clearPersona() {
+  if (!ghost.value) return
+  try {
+    personaText.value = ''
+    await invoke<string>('update_persona', { persona: '' })
+    ghost.value.persona = undefined
+    showSuccess('已恢复默认描述')
+    await emit('settings-updated', { section: 'ghost' })
+  } catch (e: any) {
+    showError('清空人设失败: ' + e)
+  }
+}
+
+async function generatePersona() {
+  if (!ghost.value) return
+  generatingPersona.value = true
+  try {
+    const persona = await invoke<string>('generate_persona')
+    personaText.value = persona
+    ghost.value.persona = persona
+    showSuccess('人设已自动生成')
+    await emit('settings-updated', { section: 'ghost' })
+  } catch (e: any) {
+    showError('生成人设失败: ' + e)
+  } finally {
+    generatingPersona.value = false
+  }
+}
 
 const EDGE_VOICE_OPTIONS = [
   { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女/活泼)' },
@@ -82,6 +125,7 @@ async function fetchGhostStatus() {
   try {
     const status = await invoke<string>('get_ghost_status')
     ghost.value = JSON.parse(status)
+    personaText.value = ghost.value?.persona || ''
   } catch (e) {
     // 没有 ghost 也没关系
   }
@@ -499,6 +543,20 @@ const diaryEntryText = computed(() => {
           </div>
         </div>
 
+        <!-- Persona -->
+        <div v-if="ghost" class="settings-section">
+          <div class="settings-section-title">🎭 角色设定</div>
+          <div class="settings-desc">设置角色的身份描述，会替换「一个生活在桌面上的小精灵」</div>
+          <textarea v-model="personaText" class="persona-input" rows="3" placeholder="例如：一只活了300年的九尾狐，表面高冷但内心柔软"></textarea>
+          <div class="persona-actions">
+            <button class="btn btn-primary" @click="savePersona">保存</button>
+            <button class="btn btn-secondary" @click="clearPersona">清空（恢复默认）</button>
+            <button class="btn btn-accent" @click="generatePersona" :disabled="generatingPersona">
+              {{ generatingPersona ? '生成中...' : '🎲 根据性格自动生成' }}
+            </button>
+          </div>
+        </div>
+
         <!-- Emotional Events -->
         <div v-if="ghost" class="settings-section">
           <div class="settings-section-title">💗 情感事件</div>
@@ -743,7 +801,64 @@ const diaryEntryText = computed(() => {
 }
 
 .btn-generate:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+
+.btn-primary {
+  background: #4a90d9;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #357abd;
+}
+
+.btn-secondary {
+  background: #e8e8e8;
+  color: #555;
+}
+
+.btn-secondary:hover {
+  background: #ddd;
+}
+
+.btn-accent {
+  background: linear-gradient(135deg, #ff6b9d, #c084fc);
+  color: white;
+}
+
+.btn-accent:hover:not(:disabled) {
   opacity: 0.9;
+}
+
+.settings-desc {
+  font-size: 11px;
+  color: #999;
+  padding-bottom: 6px;
+}
+
+.persona-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+  line-height: 1.5;
+}
+
+.persona-input:focus {
+  outline: none;
+  border-color: #4a90d9;
+}
+
+.persona-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 8px;
+  flex-wrap: wrap;
 }
 
 .btn-full {

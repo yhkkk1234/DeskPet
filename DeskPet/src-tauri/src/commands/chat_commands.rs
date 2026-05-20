@@ -638,6 +638,7 @@ fn build_system_prompt(ghost: &Ghost, state: &State<'_, AppState>) -> Result<Str
         &experiences,
         &ghost.name,
         &answering_mode,
+        &ghost.persona,
     ))
 }
 
