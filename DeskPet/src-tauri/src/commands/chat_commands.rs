@@ -940,6 +940,31 @@ pub async fn generate_diary(state: State<'_, AppState>) -> Result<serde_json::Va
 }
 
 #[tauri::command]
+pub fn get_diary_entries(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let ghost_id = {
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        locked.as_ref().map(|g| g.ghost_id.clone()).ok_or("No ghost loaded")?
+    };
+
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("数据库未初始化")?;
+
+    let rows = db.get_diary_entries(&ghost_id, 30)?;
+    let entries: Vec<serde_json::Value> = rows.iter().map(|r| {
+        serde_json::json!({
+            "id": r.id,
+            "entryDate": r.entry_date,
+            "summary": r.summary,
+        })
+    }).collect();
+
+    Ok(serde_json::json!({
+        "entries": entries,
+        "total": entries.len(),
+    }))
+}
+
+#[tauri::command]
 pub fn get_achievements(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let ghost_id = {
         let locked = state.ghost.lock().map_err(|e| e.to_string())?;

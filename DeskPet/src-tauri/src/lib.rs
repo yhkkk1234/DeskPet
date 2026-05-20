@@ -72,6 +72,7 @@ pub fn run() {
             commands::chat_commands::check_achievements,
             commands::chat_commands::get_achievements,
             commands::chat_commands::generate_diary,
+            commands::chat_commands::get_diary_entries,
             commands::screenshot_commands::capture_screenshot,
             commands::screenshot_commands::analyze_screenshot,
             commands::screenshot_commands::store_screenshot_data,

@@ -30,6 +30,8 @@ const ttsPitch = ref(1.1)
 const ttsEngine = ref<'system' | 'edge'>('system')
 const ttsVoice = ref('zh-CN-XiaoxiaoNeural')
 const answeringMode = ref<'Companion' | 'Assistant'>('Companion')
+const diaryEntries = ref<Array<{ id: string; entryDate: string; summary: string }>>([])
+const diaryExpanded = ref<Record<string, boolean>>({})
 
 const EDGE_VOICE_OPTIONS = [
   { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女/活泼)' },
@@ -65,6 +67,7 @@ async function loadLocalStorage() {
 onMounted(async () => {
   await loadLocalStorage()
   fetchGhostStatus()
+  loadDiary()
 })
 
 async function syncTTSToMain() {
@@ -287,8 +290,29 @@ const affinityColor = computed(() => {
 
 async function closeWindow() {
   const win = getCurrentWindow()
-  await win.hide()
+  await win.close()
 }
+
+async function loadDiary() {
+  try {
+    const result = await invoke<{ entries: Array<{ id: string; entryDate: string; summary: string }>; total: number }>('get_diary_entries')
+    diaryEntries.value = result.entries || []
+  } catch (e) {
+    console.warn('加载日记失败:', e)
+  }
+}
+
+function toggleDiaryEntry(id: string) {
+  diaryExpanded.value[id] = !diaryExpanded.value[id]
+}
+
+const diaryEntryText = computed(() => {
+  const map: Record<string, string> = {}
+  for (const e of diaryEntries.value) {
+    map[e.id] = diaryExpanded.value[e.id] ? e.summary : e.summary.slice(0, 40) + (e.summary.length > 40 ? '...' : '')
+  }
+  return map
+})
 </script>
 
 <template>
@@ -413,6 +437,24 @@ async function closeWindow() {
             </div>
           </div>
           <EmotionTimeline />
+        </div>
+
+        <!-- Diary -->
+        <div v-if="ghost" class="settings-section">
+          <div class="settings-section-title">📔 日记</div>
+          <div v-if="diaryEntries.length === 0" class="diary-empty">
+            <p>还没有日记。</p>
+            <p class="diary-hint">宠物每12小时会自动总结一天的生活，写下一篇日记。</p>
+          </div>
+          <div v-else class="diary-list">
+            <div v-for="entry in diaryEntries" :key="entry.id" class="diary-card" @click.stop="toggleDiaryEntry(entry.id)">
+              <div class="diary-date">{{ entry.entryDate }}</div>
+              <div class="diary-summary" :class="{ expanded: diaryExpanded[entry.id] }">
+                {{ diaryExpanded[entry.id] ? entry.summary : entry.summary.slice(0, 40) + (entry.summary.length > 40 ? '...' : '') }}
+              </div>
+              <div class="diary-toggle-hint">{{ diaryExpanded[entry.id] ? '收起' : '展开' }}</div>
+            </div>
+          </div>
         </div>
 
         <!-- Data -->
@@ -1106,5 +1148,67 @@ async function closeWindow() {
 
 .btn-negative:hover {
   background: #ffcdd2;
+}
+
+.diary-empty {
+  text-align: center;
+  padding: 20px 12px;
+  color: #999;
+  font-size: 12px;
+}
+
+.diary-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #bbb;
+}
+
+.diary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.diary-card {
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.diary-card:hover {
+  border-color: #ddd;
+  background: #fff;
+}
+
+.diary-date {
+  font-size: 11px;
+  font-weight: 700;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.diary-summary {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #444;
+  white-space: pre-wrap;
+  transition: max-height 0.3s ease;
+  overflow: hidden;
+}
+
+.diary-toggle-hint {
+  font-size: 10px;
+  color: #ccc;
+  margin-top: 4px;
+  text-align: right;
+}
+
+.diary-card:hover .diary-toggle-hint {
+  color: #aaa;
 }
 </style>
