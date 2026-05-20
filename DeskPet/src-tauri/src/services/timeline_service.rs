@@ -77,7 +77,7 @@ pub struct TimelineTickResult {
     pub baseline_after_tick: f64,
     pub inactivity_event: Option<InactivityEventResult>,
     pub curiosity_triggered: bool,
-    pub dream_triggered: bool,
+    pub sleep_triggered: bool,
     pub diary_triggered: bool,
 }
 
@@ -129,7 +129,7 @@ impl TimelineService {
             false
         };
 
-        let dream_triggered = timeline.should_generate_dream();
+        let sleep_triggered = timeline.should_generate_dream();
 
         let diary_triggered = timeline.should_generate_diary();
 
@@ -138,7 +138,7 @@ impl TimelineService {
             baseline_after_tick: ghost.soul.sensibility.baseline,
             inactivity_event,
             curiosity_triggered,
-            dream_triggered,
+            sleep_triggered,
             diary_triggered,
         }
     }

@@ -552,7 +552,7 @@ pub fn timeline_tick(state: State<'_, AppState>) -> Result<serde_json::Value, St
                 "baseline": tick_result.baseline_after_tick,
                 "inactivityEvent": tick_result.inactivity_event,
                 "curiosityTriggered": tick_result.curiosity_triggered,
-                "dreamTriggered": tick_result.dream_triggered,
+                "sleepTriggered": tick_result.sleep_triggered,
                 "diaryTriggered": tick_result.diary_triggered,
             }))
 }

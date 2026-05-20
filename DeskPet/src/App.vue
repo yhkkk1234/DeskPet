@@ -300,7 +300,7 @@ async function tickGhost() {
         hoursAway: number
       } | null
       curiosityTriggered: boolean
-      dreamTriggered: boolean
+      sleepTriggered: boolean
       diaryTriggered: boolean
     }>('timeline_tick')
     if (ghost.value) {
@@ -323,21 +323,9 @@ async function tickGhost() {
         curiosityResearch()
       }
     }
-    if (result.dreamTriggered && !dreamInProgress) {
-      dreamInProgress = true
-      const release = holdAnimation('sleep')
-      try {
-        const dream = await invoke<{ dreamId: string; dreamText: string }>('generate_dream')
-        if (dream.dreamText) {
-          pushSystemMessage(`💤 刚才好像梦见了... ${dream.dreamText}`)
-        }
-      } catch (e) {
-        console.warn('梦境生成失败:', e)
-      } finally {
-        release()
-        dreamInProgress = false
-        checkAndNotifyAchievements()
-      }
+    if (result.sleepTriggered && !asleep.value) {
+      asleep.value = true
+      sleepRelease = holdAnimation('sleep')
     }
     if (result.diaryTriggered && !diaryInProgress) {
       diaryInProgress = true
@@ -361,7 +349,8 @@ async function tickGhost() {
 
 let tickInterval: ReturnType<typeof setInterval> | null = null
 let tickInProgress = false
-let dreamInProgress = false
+const asleep = ref(false)
+let sleepRelease: (() => void) | null = null
 let diaryInProgress = false
 let autoSaveInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
@@ -594,6 +583,32 @@ onUnmounted(() => {
 })
 
 function handleChatHotkey() {
+  wakeUpAndOpenChat()
+}
+
+async function wakeUpPet() {
+  if (!asleep.value || !ghost.value) return
+  try {
+    const dream = await invoke<{ dreamId: string; dreamText: string }>('generate_dream')
+    if (dream.dreamText) {
+      pushSystemMessage(`💤 ${ghost.value.name}伸了个懒腰，迷迷糊糊地说... ${dream.dreamText}`)
+    }
+    checkAndNotifyAchievements()
+  } catch (e) {
+    console.warn('梦境生成失败:', e)
+  } finally {
+    if (sleepRelease) {
+      sleepRelease()
+      sleepRelease = null
+    }
+    asleep.value = false
+  }
+}
+
+async function wakeUpAndOpenChat() {
+  if (asleep.value) {
+    await wakeUpPet()
+  }
   openChatWindow()
 }
 
@@ -601,11 +616,18 @@ function handlePetClick(e: MouseEvent) {
   e.stopPropagation()
   if (didDrag) return
   if (!ghost.value) return
+  if (asleep.value) {
+    wakeUpPet()
+    return
+  }
   invoke('record_interaction').catch(() => {})
   openChatWindow()
 }
 
 async function openChatWindow() {
+  if (asleep.value) {
+    await wakeUpPet()
+  }
   let chatWin = await WebviewWindow.getByLabel('chat')
   if (!chatWin) {
     chatWin = new WebviewWindow('chat', {
