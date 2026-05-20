@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
@@ -158,8 +158,9 @@ async function updateSpriteSrc() {
   const defaultPath = spriteSrc.value || await resolveResource('pet/')
   const file = await open({ defaultPath, filters: [{ name: 'PNG', extensions: ['png'] }] })
   if (file) {
-    spriteSrc.value = file
-    localStorage.setItem('deskpet_sprite_src', file)
+    const src = convertFileSrc(file)
+    spriteSrc.value = src
+    localStorage.setItem('deskpet_sprite_src', src)
     emit('settings-updated', { section: 'renderer' })
   }
 }
@@ -168,8 +169,9 @@ async function updateSpriteJsonSrc() {
   const defaultPath = spriteJsonSrc.value || await resolveResource('pet/')
   const file = await open({ defaultPath, filters: [{ name: 'JSON', extensions: ['json'] }] })
   if (file) {
-    spriteJsonSrc.value = file
-    localStorage.setItem('deskpet_sprite_json_src', file)
+    const src = convertFileSrc(file)
+    spriteJsonSrc.value = src
+    localStorage.setItem('deskpet_sprite_json_src', src)
     emit('settings-updated', { section: 'renderer' })
   }
 }
@@ -178,8 +180,9 @@ async function updateLottieSrc() {
   const defaultPath = lottieSrc.value || await resolveResource('pet/')
   const dir = await open({ defaultPath, directory: true, title: '选择 Lottie 动画目录' })
   if (dir) {
-    lottieSrc.value = dir
-    localStorage.setItem('deskpet_lottie_src', dir)
+    const src = convertFileSrc(dir) + '/'
+    lottieSrc.value = src
+    localStorage.setItem('deskpet_lottie_src', src)
     emit('settings-updated', { section: 'renderer' })
   }
 }
