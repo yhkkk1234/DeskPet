@@ -13,6 +13,7 @@ use tauri::{
 use commands::chat_commands::AppState;
 use core::prompt::prompt_builder::AnsweringMode;
 use services::timeline_service::TimelineState;
+use services::weather_service::WeatherCache;
 
 fn load_tray_icon() -> tauri::image::Image<'static> {
     let png_bytes = include_bytes!("../icons/32x32.png");
@@ -33,6 +34,7 @@ pub fn run() {
         timeline: Mutex::new(TimelineState::default()),
         screenshot_data: Mutex::new(None),
         answering_mode: Mutex::new(AnsweringMode::Companion),
+        weather: Mutex::new(WeatherCache::default()),
     };
 
     tauri::Builder::default()
@@ -60,6 +62,7 @@ pub fn run() {
             commands::ghost_commands::generate_persona,
             commands::chat_commands::chat_with_pet,
             commands::chat_commands::configure_ai,
+            commands::chat_commands::configure_weather,
             commands::chat_commands::init_database,
             commands::chat_commands::ensure_database,
             commands::chat_commands::timeline_tick,

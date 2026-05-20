@@ -6,3 +6,4 @@ pub mod hotkey_service;
 pub mod timeline_service;
 pub mod sentiment_service;
 pub mod tts_service;
+pub mod weather_service;

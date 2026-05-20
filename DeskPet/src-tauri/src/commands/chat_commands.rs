@@ -12,6 +12,7 @@ use crate::core::memory::local_compressor;
 use crate::services::sentiment_service::{parse_event_type, SentimentAnalyzer};
 use crate::services::memory_compressor::MemoryCompressor;
 use crate::services::timeline_service::TimelineState;
+use crate::services::weather_service::WeatherCache;
 
 pub struct AppState {
     pub ghost: Mutex<Option<Ghost>>,
@@ -20,6 +21,7 @@ pub struct AppState {
     pub timeline: Mutex<TimelineState>,
     pub screenshot_data: Mutex<Option<String>>,
     pub answering_mode: Mutex<AnsweringMode>,
+    pub weather: Mutex<WeatherCache>,
 }
 
 #[tauri::command]
@@ -33,7 +35,10 @@ pub async fn chat_with_pet(
         locked.as_ref().ok_or("没有加载 Ghost，请先生成桌宠灵魂")?.clone()
     };
 
-    let system_prompt = build_system_prompt(&ghost, &state)?;
+    // 刷新天气缓存（异步，不阻塞对话）
+    let weather_context = crate::services::weather_service::refresh_weather_if_stale(&state.weather).await;
+
+    let system_prompt = build_system_prompt(&ghost, &state, &weather_context)?;
 
     let mut messages = Vec::new();
 
@@ -447,6 +452,21 @@ pub fn configure_ai(
 }
 
 #[tauri::command]
+pub fn configure_weather(
+    api_key: String,
+    city: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use crate::services::weather_service::WeatherConfig;
+    let config = WeatherConfig { api_key, city };
+    let mut locked = state.weather.lock().map_err(|e| e.to_string())?;
+    locked.config = config;
+    // 强制下次刷新
+    locked.last_fetch = None;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn init_database(path: String, state: State<'_, AppState>) -> Result<(), String> {
     let db = Database::new(&path)?;
     let mut locked = state.db.lock().map_err(|e| e.to_string())?;
@@ -613,7 +633,7 @@ pub fn record_interaction(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-fn build_system_prompt(ghost: &Ghost, state: &State<'_, AppState>) -> Result<String, String> {
+fn build_system_prompt(ghost: &Ghost, state: &State<'_, AppState>, weather_context: &Option<String>) -> Result<String, String> {
     let budget = TokenBudget::default();
 
     let memories = if let Some(db) = state.db.lock().map_err(|e| e.to_string())?.as_ref() {
@@ -632,14 +652,21 @@ fn build_system_prompt(ghost: &Ghost, state: &State<'_, AppState>) -> Result<Str
 
     let answering_mode = state.answering_mode.lock().map_err(|e| e.to_string())?.clone();
 
-    Ok(PromptBuilder::build_system_prompt(
+    let mut prompt = PromptBuilder::build_system_prompt(
         &ghost.soul,
         &memories,
         &experiences,
         &ghost.name,
         &answering_mode,
         &ghost.persona,
-    ))
+    );
+
+    if let Some(w) = weather_context {
+        prompt.push_str("\n\n");
+        prompt.push_str(w);
+    }
+
+    Ok(prompt)
 }
 
 fn truncate(s: &str, max_chars: usize) -> String {

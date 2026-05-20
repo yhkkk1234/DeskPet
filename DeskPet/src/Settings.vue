@@ -16,6 +16,9 @@ const aiImageModel = ref('')
 const aiImageGenEndpoint = ref('')
 const aiImageGenApiKey = ref('')
 
+const weatherApiKey = ref('')
+const weatherCity = ref('')
+
 const rendererType = ref<RendererType>('spritesheet')
 const spriteSrc = ref('/pet/pet_spritesheet.png')
 const spriteJsonSrc = ref('/pet/pet_spritesheet.json')
@@ -108,6 +111,8 @@ async function loadLocalStorage() {
   ttsEngine.value = (localStorage.getItem('deskpet_tts_engine') as 'system' | 'edge') || 'system'
   ttsVoice.value = localStorage.getItem('deskpet_tts_voice') || 'zh-CN-XiaoxiaoNeural'
   answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
+  weatherApiKey.value = localStorage.getItem('deskpet_weather_api_key') || ''
+  weatherCity.value = localStorage.getItem('deskpet_weather_city') || ''
   await syncTTSToMain()
 }
 
@@ -187,6 +192,20 @@ async function saveAIConfig() {
     localStorage.setItem('deskpet_ai_image_gen_api_key', aiImageGenApiKey.value.trim())
     showSuccess('AI 配置已保存')
     await emit('settings-updated', { section: 'ai' })
+  } catch (e: any) {
+    showError('配置失败: ' + (e as string))
+  }
+}
+
+async function saveWeatherConfig() {
+  try {
+    await invoke('configure_weather', {
+      apiKey: weatherApiKey.value.trim(),
+      city: weatherCity.value.trim(),
+    })
+    localStorage.setItem('deskpet_weather_api_key', weatherApiKey.value.trim())
+    localStorage.setItem('deskpet_weather_city', weatherCity.value.trim())
+    showSuccess('天气配置已保存')
   } catch (e: any) {
     showError('配置失败: ' + (e as string))
   }
@@ -448,6 +467,19 @@ const diaryEntryText = computed(() => {
             <input v-model="aiImageGenApiKey" class="config-input" type="password" placeholder="留空则用主API Key" />
             <p class="field-hint" v-if="aiImageGenEndpoint.trim()">独立生图路径已配置，将使用独立endpoint</p>
             <button @click="saveAIConfig" class="btn btn-generate btn-full">保存配置</button>
+          </div>
+        </div>
+
+        <!-- Weather -->
+        <div class="settings-section">
+          <div class="settings-section-title">🌤 天气感知</div>
+          <div class="ai-config">
+            <label class="config-label">OpenWeather API Key</label>
+            <input v-model="weatherApiKey" class="config-input" type="password" placeholder="留空则关闭天气感知" />
+            <label class="config-label">城市</label>
+            <input v-model="weatherCity" class="config-input" placeholder="Beijing / Tokyo / 留空则不感知" />
+            <p class="field-hint">免费注册：openweathermap.org。填好后桌宠聊天时会感知窗外天气</p>
+            <button @click="saveWeatherConfig" class="btn btn-generate btn-full">保存</button>
           </div>
         </div>
 
