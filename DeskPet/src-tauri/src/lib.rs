@@ -54,6 +54,7 @@ pub fn run() {
             commands::ghost_commands::check_duplicate_signature,
             commands::ghost_commands::curiosity_research,
             commands::ghost_commands::generate_dream,
+            commands::ghost_commands::rename_ghost,
             commands::chat_commands::chat_with_pet,
             commands::chat_commands::configure_ai,
             commands::chat_commands::init_database,

@@ -32,6 +32,8 @@ const ttsVoice = ref('zh-CN-XiaoxiaoNeural')
 const answeringMode = ref<'Companion' | 'Assistant'>('Companion')
 const diaryEntries = ref<Array<{ id: string; entryDate: string; summary: string }>>([])
 const diaryExpanded = ref<Record<string, boolean>>({})
+const renameInput = ref('')
+const renaming = ref(false)
 
 const EDGE_VOICE_OPTIONS = [
   { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女/活泼)' },
@@ -306,6 +308,21 @@ function toggleDiaryEntry(id: string) {
   diaryExpanded.value[id] = !diaryExpanded.value[id]
 }
 
+async function renameGhost() {
+  const name = renameInput.value.trim()
+  if (!name || !ghost.value) return
+  try {
+    const newName = await invoke<string>('rename_ghost', { newName: name })
+    ghost.value.name = newName
+    renameInput.value = ''
+    renaming.value = false
+    showSuccess('名字已更新')
+    await emit('settings-updated', { section: 'ghost' })
+  } catch (e: any) {
+    showError('改名失败: ' + e)
+  }
+}
+
 const diaryEntryText = computed(() => {
   const map: Record<string, string> = {}
   for (const e of diaryEntries.value) {
@@ -402,6 +419,18 @@ const diaryEntryText = computed(() => {
         <!-- Personality -->
         <div v-if="ghost" class="settings-section">
           <div class="settings-section-title">🧠 人格数据</div>
+          <div class="rename-row">
+            <span class="rename-label">名字</span>
+            <template v-if="!renaming">
+              <span class="rename-name">{{ ghost.name }}</span>
+              <button class="btn-rename-edit" @click.stop="renaming = true; renameInput = ghost.name">✎</button>
+            </template>
+            <template v-else>
+              <input v-model="renameInput" class="rename-input" @keydown.enter="renameGhost" @keydown.escape="renaming = false" />
+              <button class="btn-rename-ok" @click.stop="renameGhost">确定</button>
+              <button class="btn-rename-cancel" @click.stop="renaming = false">取消</button>
+            </template>
+          </div>
           <div class="stat-row">
             <span>好感度</span>
             <span class="stat-value" :style="{ color: affinityColor }">{{ ghost.loveHate.toFixed(1) }}</span>
@@ -1210,5 +1239,73 @@ const diaryEntryText = computed(() => {
 
 .diary-card:hover .diary-toggle-hint {
   color: #aaa;
+}
+
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 6px 0;
+}
+
+.rename-label {
+  font-size: 11px;
+  color: #999;
+  min-width: 32px;
+}
+
+.rename-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  flex: 1;
+}
+
+.btn-rename-edit {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #999;
+  transition: all 0.15s;
+}
+
+.btn-rename-edit:hover {
+  border-color: #aaa;
+  color: #555;
+}
+
+.rename-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 2px solid #ff6b9d;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.btn-rename-ok {
+  background: #ff6b9d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.btn-rename-cancel {
+  background: #eee;
+  color: #666;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 11px;
 }
 </style>

@@ -575,3 +575,16 @@ pub async fn generate_dream(state: State<'_, AppState>) -> Result<serde_json::Va
         "dreamText": dream_summary,
     }))
 }
+
+/// 修改宠物名字
+#[tauri::command]
+pub fn rename_ghost(new_name: String, state: State<'_, AppState>) -> Result<String, String> {
+    let name = new_name.trim().to_string();
+    if name.is_empty() {
+        return Err("名字不能为空".into());
+    }
+    let mut locked = state.ghost.lock().map_err(|e| e.to_string())?;
+    let ghost = locked.as_mut().ok_or("No ghost loaded")?;
+    ghost.name = name;
+    Ok(ghost.name.clone())
+}
