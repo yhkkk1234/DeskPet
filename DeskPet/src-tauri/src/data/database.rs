@@ -13,6 +13,7 @@ impl Database {
         }
 
         let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| format!("设置WAL模式失败: {}", e))?;
         let mut db = Self { conn };
         db.run_migrations()?;
         Ok(db)
@@ -364,32 +365,16 @@ impl Database {
         affinity: f64,
         snippets: &str,
     ) -> Result<(), String> {
-        let existing: bool = self
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM MasterImpressions WHERE GhostId = ?1",
-                params![ghost_id],
-                |row| row.get::<_, i32>(0).map(|c| c > 0),
+        let id = uuid::Uuid::new_v4().to_string();
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO MasterImpressions (Id, GhostId, OpennessScore, ConscientiousnessScore, ExtraversionScore, AgreeablenessScore, NeuroticismScore, CreativityScore, OverallAffinity, Snippets, UpdatedAt)
+                 VALUES (
+                    COALESCE((SELECT Id FROM MasterImpressions WHERE GhostId = ?1), ?10),
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))",
+                params![ghost_id, openness, conscientiousness, extraversion, agreeableness, neuroticism, creativity, affinity, snippets, id],
             )
-            .unwrap_or(false);
-
-        if existing {
-            self.conn
-                .execute(
-                    "UPDATE MasterImpressions SET OpennessScore=?2, ConscientiousnessScore=?3, ExtraversionScore=?4, AgreeablenessScore=?5, NeuroticismScore=?6, CreativityScore=?7, OverallAffinity=?8, Snippets=?9, UpdatedAt=datetime('now') WHERE GhostId=?1",
-                    params![ghost_id, openness, conscientiousness, extraversion, agreeableness, neuroticism, creativity, affinity, snippets],
-                )
-                .map_err(|e| e.to_string())?;
-        } else {
-            let id = uuid::Uuid::new_v4().to_string();
-            self.conn
-                .execute(
-                     "INSERT INTO MasterImpressions (Id, GhostId, OpennessScore, ConscientiousnessScore, ExtraversionScore, AgreeablenessScore, NeuroticismScore, CreativityScore, OverallAffinity, Snippets, UpdatedAt)
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))",
-                    params![id, ghost_id, openness, conscientiousness, extraversion, agreeableness, neuroticism, creativity, affinity, snippets],
-                )
-                .map_err(|e| e.to_string())?;
-        }
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

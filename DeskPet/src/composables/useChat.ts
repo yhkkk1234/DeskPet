@@ -94,8 +94,14 @@ export function useChat() {
     window.speechSynthesis.speak(utterance)
   }
 
+  let currentAudio: HTMLAudioElement | null = null
+
   async function speakEdge(text: string) {
     try {
+      if (currentAudio) {
+        currentAudio.pause()
+        currentAudio = null
+      }
       const base64 = await invoke<string>('speak_edge_tts', {
         text,
         voice: ttsVoice.value,
@@ -107,8 +113,16 @@ export function useChat() {
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
       audio.volume = 0.9
-      audio.play()
-      audio.onended = () => URL.revokeObjectURL(url)
+      currentAudio = audio
+      audio.onended = () => {
+        URL.revokeObjectURL(url)
+        if (currentAudio === audio) currentAudio = null
+      }
+      audio.onerror = () => {
+        URL.revokeObjectURL(url)
+        if (currentAudio === audio) currentAudio = null
+      }
+      await audio.play()
     } catch (e) {
       console.warn('Edge TTS 失败，降级到系统语音:', e)
       speakSystem(text)

@@ -32,7 +32,8 @@ impl AIService {
             .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(10))
             .build()
-            .unwrap_or_default();
+            .map_err(|e| eprintln!("[AI] 创建HTTP客户端失败，使用默认: {}", e))
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self { config, client }
     }
 
@@ -186,8 +187,10 @@ impl AIService {
     }
 
     pub async fn chat_with_image(&self, system_prompt: &str, image_path: &str, question: &str, messages: &[ChatMessage]) -> Result<String, String> {
-        let image_data = std::fs::read(image_path)
-            .map_err(|e| format!("读取图片失败: {}", e))?;
+        let image_path = image_path.to_string();
+        let image_data = tokio::task::spawn_blocking(move || {
+            std::fs::read(&image_path).map_err(|e| format!("读取图片失败: {}", e))
+        }).await.map_err(|e| format!("读取图片任务失败: {}", e))??;
         let base64_image = base64::engine::general_purpose::STANDARD.encode(&image_data);
         self.chat_with_image_base64(system_prompt, &base64_image, question, messages).await
     }

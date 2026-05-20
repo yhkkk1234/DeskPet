@@ -120,9 +120,13 @@ pub async fn chat_with_pet(
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
             let user_msg_id = uuid::Uuid::new_v4().to_string();
-            let _ = db.save_chat_message(&user_msg_id, &ghost.ghost_id, "user", &message);
+            if let Err(e) = db.save_chat_message(&user_msg_id, &ghost.ghost_id, "user", &message) {
+                eprintln!("[chat] 保存用户消息失败: {}", e);
+            }
             let pet_msg_id = uuid::Uuid::new_v4().to_string();
-            let _ = db.save_chat_message(&pet_msg_id, &ghost.ghost_id, "assistant", &response);
+            if let Err(e) = db.save_chat_message(&pet_msg_id, &ghost.ghost_id, "assistant", &response) {
+                eprintln!("[chat] 保存AI回复失败: {}", e);
+            }
         }
     }
 
@@ -214,14 +218,16 @@ pub async fn chat_with_pet(
             let user_sentiment = compressed_user.sentiment;
             let user_entities = serde_json::to_string(&compressed_user.entities).ok();
 
-            let _ = mem_service.add_short_term_memory(
+            if let Err(e) = mem_service.add_short_term_memory(
                 &format!("用户说：{}", compressed_user.summary),
                 0.4,
                 0.5,
                 user_sentiment,
                 Some("chat"),
                 user_entities.as_deref(),
-            );
+            ) {
+                eprintln!("[chat] 保存用户短期记忆失败: {}", e);
+            }
 
             let compressed_response = local_compressor::local_compress_message(&response);
             let response_sentiment = compressed_response.sentiment;
@@ -233,14 +239,16 @@ pub async fn chat_with_pet(
             } else {
                 compressed_response.summary.clone()
             };
-            let _ = mem_service.add_short_term_memory(
+            if let Err(e) = mem_service.add_short_term_memory(
                 &format!("你回复：{}", response_summary),
                 0.4,
                 0.5,
                 response_sentiment,
                 Some("chat"),
                 response_entities.as_deref(),
-            );
+            ) {
+                eprintln!("[chat] 保存AI回复短期记忆失败: {}", e);
+            }
 
             if let Ok(experiences) = db.get_experiences(&ghost_snapshot.ghost_id) {
                 let response_lower = response.to_lowercase();
@@ -248,7 +256,9 @@ pub async fn chat_with_pet(
                     let name_lower = exp.name.to_lowercase();
                     if response_lower.contains(&name_lower) {
                         let new_proficiency = (exp.proficiency + 0.01).min(1.0);
-                        let _ = db.update_experience_proficiency(&exp.id, new_proficiency);
+                        if let Err(e) = db.update_experience_proficiency(&exp.id, new_proficiency) {
+                            eprintln!("[chat] 更新经验熟练度失败: {}", e);
+                        }
                     }
                 }
             }
@@ -334,7 +344,7 @@ pub async fn chat_with_pet(
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
             let event_id = uuid::Uuid::new_v4().to_string();
-            let _ = db.save_emotional_event(
+            if let Err(e) = db.save_emotional_event(
                 &event_id,
                 &ghost_snapshot.ghost_id,
                 &event_type_str,
@@ -342,11 +352,13 @@ pub async fn chat_with_pet(
                 sentiment_love_hate,
                 emotional_event.baseline_delta,
                 Some(&truncate(&message, 100)),
-            );
+            ) {
+                eprintln!("[chat] 保存情感事件失败: {}", e);
+            }
 
             let imp = &ghost_snapshot.soul.impression;
             let snippets_json = serde_json::to_string(&imp.general_impression_snippets).unwrap_or_else(|_| "[]".into());
-            let _ = db.save_impression(
+            if let Err(e) = db.save_impression(
                 &ghost_snapshot.ghost_id,
                 imp.openness_score,
                 imp.conscientiousness_score,
@@ -356,17 +368,21 @@ pub async fn chat_with_pet(
                 imp.creativity_score,
                 imp.overall_affinity,
                 &snippets_json,
-            );
+            ) {
+                eprintln!("[chat] 保存印象数据失败: {}", e);
+            }
 
             let chunk_id = uuid::Uuid::new_v4().to_string();
             let chunk_summary = format!("{}: {} → {}", ghost_snapshot.name, truncate(&message, 40), truncate(&response, 40));
-            let _ = db.save_conversation_chunk(
+            if let Err(e) = db.save_conversation_chunk(
                 &chunk_id,
                 &ghost_snapshot.ghost_id,
                 &chunk_summary,
                 if sentiment_love_hate.abs() > 3.0 { 0.7 } else { 0.4 },
                 None,
-            );
+            ) {
+                eprintln!("[chat] 保存对话片段失败: {}", e);
+            }
         }
     }
 
@@ -414,15 +430,17 @@ pub fn configure_ai(
         *locked = Some(config);
     }
 
-    if state.db.lock().map_err(|e| e.to_string())?.is_none() {
-        let app_data_dir = dirs::data_dir()
-            .ok_or("无法获取应用数据目录")?;
-        let db_path = app_data_dir.join("DeskPet").join("deskpet.db");
-        std::fs::create_dir_all(db_path.parent().ok_or("无法创建数据库目录")?)
-            .map_err(|e| format!("创建目录失败: {}", e))?;
-        let db = Database::new(db_path.to_str().ok_or("数据库路径无效")?)?;
-        let mut locked = state.db.lock().map_err(|e| e.to_string())?;
-        *locked = Some(db);
+    {
+        let mut db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if db_guard.is_none() {
+            let app_data_dir = dirs::data_dir()
+                .ok_or("无法获取应用数据目录")?;
+            let db_path = app_data_dir.join("DeskPet").join("deskpet.db");
+            std::fs::create_dir_all(db_path.parent().ok_or("无法创建数据库目录")?)
+                .map_err(|e| format!("创建目录失败: {}", e))?;
+            let db = Database::new(db_path.to_str().ok_or("数据库路径无效")?)?;
+            *db_guard = Some(db);
+        }
     }
 
     Ok(())
@@ -465,47 +483,56 @@ pub fn get_answering_mode(state: State<'_, AppState>) -> Result<String, String> 
 #[tauri::command]
 pub fn timeline_tick(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let mut rng = rand::thread_rng();
-    let mut timeline = state.timeline.lock().map_err(|e| e.to_string())?;
-    let mut locked = state.ghost.lock().map_err(|e| e.to_string())?;
 
-    match locked.as_mut() {
-        Some(ghost) => {
-            let result = crate::services::timeline_service::TimelineService::tick(
-                ghost, &mut timeline, &mut rng,
-            );
+    let tick_result;
+    let ghost_id: String;
+    let inactivity_event_opt: Option<crate::services::timeline_service::InactivityEventResult>;
 
-            let mut decayed_experiences = 0usize;
-            if let Some(db) = state.db.lock().map_err(|e| e.to_string())?.as_ref() {
-                let mem_service = MemoryService::new(db, &ghost.ghost_id);
-                decayed_experiences = mem_service.decay_experience_proficiency().unwrap_or(0);
+    {
+        let mut locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        let ghost = locked.as_mut().ok_or("No ghost loaded")?;
+        ghost_id = ghost.ghost_id.clone();
 
-                // P1-5: 不活跃事件持久化到DB
-                if let Some(ref inactivity_evt) = result.inactivity_event {
-                    let description = format!("主人已经{}小时没有互动了...", inactivity_evt.hours_away);
-                    let _ = db.save_emotional_event(
-                        &uuid::Uuid::new_v4().to_string(),
-                        &ghost.ghost_id,
-                        &inactivity_evt.event_type,
-                        inactivity_evt.intensity,
-                        inactivity_evt.love_hate_delta,
-                        0.0,
-                        Some(&description),
-                    );
+        let mut timeline = state.timeline.lock().map_err(|e| e.to_string())?;
+        tick_result = crate::services::timeline_service::TimelineService::tick(
+            ghost, &mut timeline, &mut rng,
+        );
+        inactivity_event_opt = tick_result.inactivity_event.clone();
+    }
+
+    let mut decayed_experiences = 0usize;
+    {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            let mem_service = MemoryService::new(db, &ghost_id);
+            decayed_experiences = mem_service.decay_experience_proficiency().unwrap_or(0);
+
+            if let Some(ref inactivity_evt) = inactivity_event_opt {
+                let description = format!("主人已经{}小时没有互动了...", inactivity_evt.hours_away);
+                if let Err(e) = db.save_emotional_event(
+                    &uuid::Uuid::new_v4().to_string(),
+                    &ghost_id,
+                    &inactivity_evt.event_type,
+                    inactivity_evt.intensity,
+                    inactivity_evt.love_hate_delta,
+                    0.0,
+                    Some(&description),
+                ) {
+                    eprintln!("[timeline_tick] 保存不活跃事件失败: {}", e);
                 }
             }
-            if decayed_experiences > 0 {
-                eprintln!("[经验衰减] {}条经验熟练度已衰减", decayed_experiences);
-            }
-
-            Ok(serde_json::json!({
-                "loveHate": result.love_hate_after_tick,
-                "baseline": result.baseline_after_tick,
-                "inactivityEvent": result.inactivity_event,
-                "curiosityTriggered": result.curiosity_triggered,
-            }))
         }
-        None => Err("No ghost loaded".into()),
     }
+    if decayed_experiences > 0 {
+        eprintln!("[经验衰减] {}条经验熟练度已衰减", decayed_experiences);
+    }
+
+    Ok(serde_json::json!({
+        "loveHate": tick_result.love_hate_after_tick,
+        "baseline": tick_result.baseline_after_tick,
+        "inactivityEvent": tick_result.inactivity_event,
+        "curiosityTriggered": tick_result.curiosity_triggered,
+    }))
 }
 
 #[tauri::command]
@@ -568,14 +595,17 @@ pub fn get_emotion_history(state: State<'_, AppState>) -> Result<serde_json::Val
 
 #[tauri::command]
 pub fn record_interaction(state: State<'_, AppState>) -> Result<(), String> {
-    let mut timeline = state.timeline.lock().map_err(|e| e.to_string())?;
-    timeline.record_interaction();
+    {
+        let mut timeline = state.timeline.lock().map_err(|e| e.to_string())?;
+        timeline.record_interaction();
+    }
     
-    // 保存 last_interaction 到数据库
     let now = chrono::Utc::now().to_rfc3339();
     let db_guard = state.db.lock().map_err(|e| e.to_string())?;
     if let Some(db) = db_guard.as_ref() {
-        let _ = db.save_last_interaction(now);
+        if let Err(e) = db.save_last_interaction(now) {
+            eprintln!("[record_interaction] 保存last_interaction失败: {}", e);
+        }
     }
     
     Ok(())
@@ -658,35 +688,34 @@ pub async fn generate_image(
 
 #[tauri::command]
 pub fn ensure_database(state: State<'_, AppState>) -> Result<(), String> {
-    let mut locked = state.db.lock().map_err(|e| e.to_string())?;
-    if locked.is_some() {
-        // 已经初始化，尝试加载 lastInteraction
-        if let Some(ref db_ref) = *locked {
-            if let Some(ts) = db_ref.load_last_interaction() {
-                if let Ok(mut timeline) = state.timeline.lock() {
-                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&ts) {
+    let last_interaction_ts: Option<String>;
+    {
+        let mut locked = state.db.lock().map_err(|e| e.to_string())?;
+        if locked.is_some() {
+            last_interaction_ts = locked.as_ref().and_then(|db_ref| db_ref.load_last_interaction());
+            if let Some(ref ts) = last_interaction_ts {
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+                    if let Ok(mut timeline) = state.timeline.lock() {
                         timeline.last_interaction = dt.with_timezone(&chrono::Utc);
                     }
                 }
             }
+            return Ok(());
         }
-        return Ok(());
+        let app_data_dir = dirs::data_dir().ok_or("无法获取应用数据目录")?;
+        let db_path = app_data_dir.join("DeskPet").join("deskpet.db");
+        if let Some(p) = db_path.parent() {
+            std::fs::create_dir_all(p).map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+        let db = Database::new(db_path.to_str().ok_or("数据库路径无效")?)?;
+        last_interaction_ts = db.load_last_interaction();
+        *locked = Some(db);
     }
-    let app_data_dir = dirs::data_dir().ok_or("无法获取应用数据目录")?;
-    let db_path = app_data_dir.join("DeskPet").join("deskpet.db");
-    if let Some(p) = db_path.parent() {
-        std::fs::create_dir_all(p).map_err(|e| format!("创建目录失败: {}", e))?;
-    }
-    let db = Database::new(db_path.to_str().ok_or("数据库路径无效")?)?;
-    *locked = Some(db);
 
-    // 加载 lastInteraction 并设置到 timeline
-    if let Some(ref db_ref) = *locked {
-        if let Some(ts) = db_ref.load_last_interaction() {
+    if let Some(ts) = last_interaction_ts {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&ts) {
             if let Ok(mut timeline) = state.timeline.lock() {
-                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&ts) {
-                    timeline.last_interaction = dt.with_timezone(&chrono::Utc);
-                }
+                timeline.last_interaction = dt.with_timezone(&chrono::Utc);
             }
         }
     }

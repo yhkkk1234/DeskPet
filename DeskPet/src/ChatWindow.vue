@@ -147,8 +147,14 @@ function speakSystem(text: string) {
   window.speechSynthesis.speak(utterance)
 }
 
+let currentEdgeAudio: HTMLAudioElement | null = null
+
 async function speakEdge(text: string) {
   try {
+    if (currentEdgeAudio) {
+      currentEdgeAudio.pause()
+      currentEdgeAudio = null
+    }
     const base64 = await invoke<string>('speak_edge_tts', {
       text,
       voice: localStorage.getItem('deskpet_tts_voice') || 'zh-CN-XiaoxiaoNeural',
@@ -160,8 +166,16 @@ async function speakEdge(text: string) {
     const url = URL.createObjectURL(blob)
     const audio = new Audio(url)
     audio.volume = 0.9
-    audio.play()
-    audio.onended = () => URL.revokeObjectURL(url)
+    currentEdgeAudio = audio
+    audio.onended = () => {
+      URL.revokeObjectURL(url)
+      if (currentEdgeAudio === audio) currentEdgeAudio = null
+    }
+    audio.onerror = () => {
+      URL.revokeObjectURL(url)
+      if (currentEdgeAudio === audio) currentEdgeAudio = null
+    }
+    await audio.play()
   } catch {
     speakSystem(text)
   }

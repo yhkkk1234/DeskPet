@@ -38,7 +38,7 @@ const error = ref('')
 
 const { ghostId, pushSystemMessage, clearMessages, loadHistory } = useChat()
 const chatLoading = ref(false)
-const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation()
+const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, stopBlink, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation()
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, framePositions, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
 const showToolbar = ref(false)
@@ -209,7 +209,7 @@ async function loadAutosaveGhost(path: string) {
     startDailyRoutine()
   } catch (e: any) {
     console.warn('自动加载失败，创建新灵魂:', e)
-    generateGhost()
+    await generateGhost()
   } finally {
     loading.value = false
   }
@@ -265,6 +265,8 @@ function declineEnhancedPrivacy() {
 
 async function tickGhost() {
   if (!ghost.value) return
+  if (tickInProgress) return
+  tickInProgress = true
   try {
     const result = await invoke<{
       loveHate: number
@@ -299,10 +301,13 @@ async function tickGhost() {
     }
   } catch (e: any) {
     console.error('Tick error:', e)
+  } finally {
+    tickInProgress = false
   }
 }
 
 let tickInterval: ReturnType<typeof setInterval> | null = null
+let tickInProgress = false
 let autoSaveInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
 let chatHotkeyUnlisten: (() => void) | null = null
@@ -311,6 +316,11 @@ let quitHotkeyUnlisten: (() => void) | null = null
 let chatPostProcessedUnlisten: (() => void) | null = null
 let chatTokenUnlisten: (() => void) | null = null
 let chatCompleteUnlisten: (() => void) | null = null
+let settingsUpdatedUnlisten: (() => void) | null = null
+let requestTransferUnlisten: (() => void) | null = null
+let screenshotCapturedUnlisten: (() => void) | null = null
+let screenshotCancelledUnlisten: (() => void) | null = null
+let transferAnimInterval: ReturnType<typeof setInterval> | null = null
 
 async function loadSpriteJson() {
   try {
@@ -424,7 +434,7 @@ onMounted(async () => {
     await win.close()
   })
 
-  await listen('settings-updated', async (event: any) => {
+  settingsUpdatedUnlisten = await listen('settings-updated', async (event: any) => {
     const section = event.payload?.section
     if (section === 'renderer') {
       loadRendererFromStorage()
@@ -442,17 +452,17 @@ onMounted(async () => {
     }
   })
 
-  await listen('request-transfer', () => {
+  requestTransferUnlisten = await listen('request-transfer', () => {
     startTransfer()
   })
 
-  await listen('screenshot-region-captured', (event: any) => {
+  screenshotCapturedUnlisten = await listen('screenshot-region-captured', (event: any) => {
     const { base64, region } = event.payload
     screenshotScreenRegion.value = region
     analyzeScreenshot(base64)
   })
 
-  await listen('screenshot-cancelled', () => {
+  screenshotCancelledUnlisten = await listen('screenshot-cancelled', () => {
     screenshotAnalysisLoading.value = false
     restoreAnsweringMode()
   })
@@ -502,28 +512,28 @@ onMounted(async () => {
     stopSpeaking()
   })
 
-  document.addEventListener('keydown', handleEscKey)
+  document.addEventListener('keydown', () => {})
 })
-
-function handleEscKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    // 不再控制气泡隐藏，ChatWindow 独立处理
-  }
-}
 
 onUnmounted(() => {
   autoSaveGhost()
   if (tickInterval) clearInterval(tickInterval)
   if (autoSaveInterval) clearInterval(autoSaveInterval)
+  if (transferAnimInterval) clearInterval(transferAnimInterval)
   if (hotkeyUnlisten) hotkeyUnlisten()
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
   if (settingsHotkeyUnlisten) settingsHotkeyUnlisten()
   if (quitHotkeyUnlisten) quitHotkeyUnlisten()
+  if (settingsUpdatedUnlisten) settingsUpdatedUnlisten()
+  if (requestTransferUnlisten) requestTransferUnlisten()
+  if (screenshotCapturedUnlisten) screenshotCapturedUnlisten()
+  if (screenshotCancelledUnlisten) screenshotCancelledUnlisten()
   if (chatPostProcessedUnlisten) chatPostProcessedUnlisten()
   if (chatTokenUnlisten) chatTokenUnlisten()
   if (chatCompleteUnlisten) chatCompleteUnlisten()
-  document.removeEventListener('keydown', handleEscKey)
+  document.removeEventListener('keydown', () => {})
   stopDailyRoutine()
+  stopBlink()
   window.speechSynthesis?.cancel()
 })
 
@@ -612,7 +622,6 @@ async function analyzeScreenshot(base64: string) {
 
   movePetToScreenshotRegion()
   playOneShot('surprise', 400)
-  screenshotAnalysisLoading.value = false
 
   if (answeringMode.value === 'Companion') {
     previousAnsweringMode.value = 'Companion'
@@ -628,6 +637,8 @@ async function analyzeScreenshot(base64: string) {
       pushSystemMessage('截图数据发送到对话窗口失败')
     }
   }, 300)
+
+  screenshotAnalysisLoading.value = false
 }
 
 function restoreAnsweringMode() {
@@ -695,13 +706,15 @@ function startTransfer() {
   transferAnimProgress.value = 0
   transferResult.value = null
 
+  if (transferAnimInterval) clearInterval(transferAnimInterval)
   let frame = 0
   const totalFrames = 120
-  const animId = setInterval(() => {
+  transferAnimInterval = setInterval(() => {
     frame++
     transferAnimProgress.value = frame / totalFrames
     if (frame >= totalFrames) {
-      clearInterval(animId)
+      if (transferAnimInterval) clearInterval(transferAnimInterval)
+      transferAnimInterval = null
       executeTransfer()
     }
   }, 25)

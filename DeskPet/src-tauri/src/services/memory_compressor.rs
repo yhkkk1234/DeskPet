@@ -146,7 +146,9 @@ impl MemoryCompressor {
         }
 
         for id in stm_ids {
-            let _ = db.delete_short_term_memory(id);
+            if let Err(e) = db.delete_short_term_memory(id) {
+                eprintln!("[记忆压缩] 删除短期记忆失败 (id={}): {}", id, e);
+            }
         }
 
         Ok(CompressResult { compressed: true, new_ltm_count, new_experience_count })

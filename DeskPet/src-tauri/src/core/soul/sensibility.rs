@@ -46,7 +46,7 @@ impl Sensibility {
     }
 
     pub fn apply_event(&mut self, value: f64) {
-        if self.love_hate == 0.0 {
+        if self.love_hate.abs() < 0.01 {
             self.love_hate += value;
         } else {
             let current_abs = self.love_hate.abs();

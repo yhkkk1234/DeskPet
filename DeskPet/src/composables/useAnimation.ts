@@ -239,8 +239,8 @@ export function useAnimation() {
         if (animationGen === gen) {
           currentAnimationState.value = 'idle'
           isPerformingBehavior.value = false
+          startDailyRoutine()
         }
-        startDailyRoutine()
         resolve()
       }, durationMs)
     })
@@ -583,8 +583,8 @@ export function useAnimation() {
     if (currentAnimationState.value === 'speaking') {
       currentAnimationState.value = 'idle'
       isPerformingBehavior.value = false
+      startDailyRoutine()
     }
-    startDailyRoutine()
   }
 
   return {
@@ -609,6 +609,7 @@ export function useAnimation() {
     triggerDailyBehavior,
     startDailyRoutine,
     stopDailyRoutine,
+    stopBlink,
     movePetTo,
     resetPosition,
     onAnimationComplete,

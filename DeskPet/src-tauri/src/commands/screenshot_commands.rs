@@ -91,7 +91,9 @@ pub async fn analyze_screenshot(
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
             let msg_id = Uuid::new_v4().to_string();
-            let _ = db.save_chat_message(&msg_id, &ghost.ghost_id, "assistant", &response);
+            if let Err(e) = db.save_chat_message(&msg_id, &ghost.ghost_id, "assistant", &response) {
+                eprintln!("[screenshot] 保存截图分析消息失败: {}", e);
+            }
         }
     }
 
@@ -158,7 +160,13 @@ pub async fn curiosity_background_analyze(
         }
     };
 
-    let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap_or_default();
+    let parsed: serde_json::Value = match serde_json::from_str(&json_str) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[curiosity] JSON解析失败: {}, 原始: {}", e, &json_str[..json_str.len().min(200)]);
+            return Ok(serde_json::json!({ "analyzed": false, "reason": "JSON parse error" }));
+        }
+    };
     let activity = parsed["activity"].as_str().unwrap_or("主人正在使用电脑").to_string();
 
     {
@@ -187,7 +195,7 @@ pub async fn curiosity_background_analyze(
             if let Some(g) = ghost_snapshot {
                 let imp = &g.soul.impression;
                 let snippets_json = serde_json::to_string(&imp.general_impression_snippets).unwrap_or_else(|_| "[]".into());
-                let _ = db.save_impression(
+                if let Err(e) = db.save_impression(
                     &g.ghost_id,
                     imp.openness_score,
                     imp.conscientiousness_score,
@@ -197,7 +205,9 @@ pub async fn curiosity_background_analyze(
                     imp.creativity_score,
                     imp.overall_affinity,
                     &snippets_json,
-                );
+                ) {
+                    eprintln!("[curiosity] 保存印象数据失败: {}", e);
+                }
             }
         }
     }

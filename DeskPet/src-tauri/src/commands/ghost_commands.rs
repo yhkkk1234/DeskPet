@@ -39,10 +39,10 @@ fn restore_impression_from_db(ghost: &mut Ghost, state: &State<'_, AppState>) {
             if let Some(last) = events.last() {
                 let accumulated_love_hate: f64 = events.iter().map(|e| e.love_hate_delta).sum();
                 let accumulated_baseline: f64 = events.iter().map(|e| e.baseline_delta).sum();
-                if ghost.soul.sensibility.love_hate == 0.0 && accumulated_love_hate.abs() > 0.01 {
+                if ghost.soul.sensibility.love_hate.abs() < 0.01 && accumulated_love_hate.abs() > 0.01 {
                     ghost.soul.sensibility.love_hate = accumulated_love_hate.clamp(-100.0, 100.0);
                 }
-                if ghost.soul.sensibility.baseline == 0.0 && accumulated_baseline.abs() > 0.01 {
+                if ghost.soul.sensibility.baseline.abs() < 0.01 && accumulated_baseline.abs() > 0.01 {
                     ghost.soul.sensibility.baseline = accumulated_baseline.clamp(-30.0, 30.0);
                 }
                 let _ = last;
@@ -242,7 +242,9 @@ pub async fn transfer_ghost(
                     let db_guard = state.db.lock().map_err(|e| e.to_string())?;
                     if let Some(db) = db_guard.as_ref() {
                         for (id, new_summary) in &blurred {
-                            let _ = db.update_long_term_memory_summary(id, new_summary);
+                            if let Err(e) = db.update_long_term_memory_summary(id, new_summary) {
+                                eprintln!("[transfer] AI模糊化保存失败 (id={}): {}", id, e);
+                            }
                             ai_blurred_count += 1;
                         }
                     }
@@ -464,7 +466,7 @@ pub async fn curiosity_research(state: State<'_, AppState>) -> Result<serde_json
         if let Some(db) = db_guard.as_ref() {
             let compressed = local_compressor::local_compress_message(&result);
             let entities_json = serde_json::to_string(&compressed.entities).ok();
-            let _ = db.save_short_term_memory(
+            if let Err(e) = db.save_short_term_memory(
                 &uuid::Uuid::new_v4().to_string(),
                 &ghost_id,
                 &format!("(好奇心探索) {}", compressed.summary),
@@ -473,7 +475,9 @@ pub async fn curiosity_research(state: State<'_, AppState>) -> Result<serde_json
                 compressed.sentiment,
                 Some("research"),
                 entities_json.as_deref(),
-            );
+            ) {
+                eprintln!("[curiosity] 保存探索记忆失败: {}", e);
+            }
         }
     }
 
