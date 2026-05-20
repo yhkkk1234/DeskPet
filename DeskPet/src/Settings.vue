@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
+import { appDataDir, resolveResource } from '@tauri-apps/api/path'
 import { ref, computed, onMounted } from 'vue'
 import type { RendererType } from './composables/usePetRenderer'
 import EmotionTimeline from './components/EmotionTimeline.vue'
@@ -35,191 +36,18 @@ const diaryEntries = ref<Array<{ id: string; entryDate: string; summary: string 
 const diaryExpanded = ref<Record<string, boolean>>({})
 const renameInput = ref('')
 const renaming = ref(false)
-
-const EDGE_VOICE_OPTIONS = [
-  { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女/活泼)' },
-  { id: 'zh-CN-XiaoyiNeural', label: '晓伊 (女/温柔)' },
-  { id: 'zh-CN-YunjianNeural', label: '云健 (男/阳光)' },
-  { id: 'zh-CN-YunxiNeural', label: '云希 (男/沉稳)' },
-  { id: 'zh-CN-YunxiaNeural', label: '云霞 (女/亲切)' },
-  { id: 'zh-CN-YunyangNeural', label: '云扬 (男/新闻)' },
-  { id: 'zh-CN-XiaochenNeural', label: '晓晨 (女/自然)' },
-  { id: 'zh-CN-XiaohanNeural', label: '晓涵 (女/甜美)' },
-]
-
-async function loadLocalStorage() {
-  rendererType.value = (localStorage.getItem('deskpet_renderer_type') as RendererType) || 'spritesheet'
-  spriteSrc.value = localStorage.getItem('deskpet_sprite_src') || '/pet/pet_spritesheet.png'
-  spriteJsonSrc.value = localStorage.getItem('deskpet_sprite_json_src') || '/pet/pet_spritesheet.json'
-  lottieSrc.value = localStorage.getItem('deskpet_lottie_src') || '/pet/lottie/'
-  aiEndpoint.value = localStorage.getItem('deskpet_ai_endpoint') || 'https://api.deepseek.com/v1'
-  aiModel.value = localStorage.getItem('deskpet_ai_model') || 'deepseek-chat'
-  aiVisionModel.value = localStorage.getItem('deskpet_ai_vision_model') || ''
-  aiImageModel.value = localStorage.getItem('deskpet_ai_image_model') || ''
-  aiImageGenEndpoint.value = localStorage.getItem('deskpet_ai_image_gen_endpoint') || ''
-  aiImageGenApiKey.value = localStorage.getItem('deskpet_ai_image_gen_api_key') || ''
-  ttsEnabled.value = localStorage.getItem('deskpet_tts_enabled') === 'true'
-  ttsRate.value = parseFloat(localStorage.getItem('deskpet_tts_rate') || '1.0')
-  ttsPitch.value = parseFloat(localStorage.getItem('deskpet_tts_pitch') || '1.1')
-  ttsEngine.value = (localStorage.getItem('deskpet_tts_engine') as 'system' | 'edge') || 'system'
-  ttsVoice.value = localStorage.getItem('deskpet_tts_voice') || 'zh-CN-XiaoxiaoNeural'
-  answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
-  await syncTTSToMain()
-}
-
-onMounted(async () => {
-  await loadLocalStorage()
-  fetchGhostStatus()
-  loadDiary()
-})
-
-async function syncTTSToMain() {
-  await emit('tts-updated', { enabled: ttsEnabled.value, rate: ttsRate.value, pitch: ttsPitch.value, engine: ttsEngine.value, voice: ttsVoice.value })
-}
-
-async function fetchGhostStatus() {
-  try {
-    const status = await invoke<string>('get_ghost_status')
-    ghost.value = JSON.parse(status)
-  } catch (e) {
-    // 没有 ghost 也没关系
-  }
-}
-
-function showError(msg: string) {
-  error.value = msg
-  success.value = ''
-  setTimeout(() => { error.value = '' }, 4000)
-}
-
-function showSuccess(msg: string) {
-  success.value = msg
-  error.value = ''
-  setTimeout(() => { success.value = '' }, 3000)
-}
-
-async function saveTTSSettings() {
-  localStorage.setItem('deskpet_tts_enabled', ttsEnabled.value.toString())
-  localStorage.setItem('deskpet_tts_rate', ttsRate.value.toString())
-  localStorage.setItem('deskpet_tts_pitch', ttsPitch.value.toString())
-  localStorage.setItem('deskpet_tts_engine', ttsEngine.value)
-  localStorage.setItem('deskpet_tts_voice', ttsVoice.value)
-  await syncTTSToMain()
-  showSuccess('语音设置已保存')
-  emit('settings-updated', { section: 'tts' })
-}
-
-async function clearHistory() {
-  if (!ghost.value) return
-  try {
-    await invoke('clear_chat_history', { ghostId: ghost.value.ghostId })
-    showSuccess('聊天记录已清除')
-  } catch (e: any) {
-    showError('清除失败: ' + (e as string))
-  }
-}
-
-async function saveAIConfig() {
-  if (!aiEndpoint.value.trim()) { showError('请填写 API Endpoint'); return }
-  if (!aiApiKey.value.trim()) { showError('请填写 API Key'); return }
-  if (!aiModel.value.trim()) { showError('请填写 Model 名称'); return }
-
-  try {
-    await invoke('configure_ai', {
-      endpoint: aiEndpoint.value.trim(),
-      apiKey: aiApiKey.value.trim(),
-      model: aiModel.value.trim(),
-      visionModel: aiVisionModel.value.trim() || null,
-      imageModel: aiImageModel.value.trim() || null,
-      imageGenEndpoint: aiImageGenEndpoint.value.trim() || null,
-      imageGenApiKey: aiImageGenApiKey.value.trim() || null,
-    })
-    localStorage.setItem('deskpet_ai_endpoint', aiEndpoint.value.trim())
-    localStorage.setItem('deskpet_ai_model', aiModel.value.trim())
-    localStorage.setItem('deskpet_ai_vision_model', aiVisionModel.value.trim())
-    localStorage.setItem('deskpet_ai_image_model', aiImageModel.value.trim())
-    localStorage.setItem('deskpet_ai_image_gen_endpoint', aiImageGenEndpoint.value.trim())
-    localStorage.setItem('deskpet_ai_image_gen_api_key', aiImageGenApiKey.value.trim())
-    showSuccess('AI 配置已保存')
-    await emit('settings-updated', { section: 'ai' })
-  } catch (e: any) {
-    showError('配置失败: ' + (e as string))
-  }
-}
-
-function switchRenderer(type: RendererType) {
-  rendererType.value = type
-  localStorage.setItem('deskpet_renderer_type', type)
-  emit('settings-updated', { section: 'renderer' })
-}
-
-async function updateSpriteSrc() {
-  const file = await open({ filters: [{ name: 'PNG', extensions: ['png'] }] })
-  if (file) {
-    spriteSrc.value = file
-    localStorage.setItem('deskpet_sprite_src', file)
-    emit('settings-updated', { section: 'renderer' })
-  }
-}
-
-async function updateSpriteJsonSrc() {
-  const file = await open({ filters: [{ name: 'JSON', extensions: ['json'] }] })
-  if (file) {
-    spriteJsonSrc.value = file
-    localStorage.setItem('deskpet_sprite_json_src', file)
-    emit('settings-updated', { section: 'renderer' })
-  }
-}
-
-async function updateLottieSrc() {
-  const dir = await open({ directory: true, title: '选择 Lottie 动画目录' })
-  if (dir) {
-    lottieSrc.value = dir
-    localStorage.setItem('deskpet_lottie_src', dir)
-    emit('settings-updated', { section: 'renderer' })
-  }
-}
-
-async function setCuriosityLevel(level: string) {
-  if (!ghost.value) return
-  try {
-    await invoke('set_curiosity_level', { level })
-    ghost.value.curiosityLevel = level
-    showSuccess('好奇心已设置为 ' + level)
-    await emit('settings-updated', { section: 'curiosity' })
-  } catch (e: any) {
-    showError('设置失败: ' + e)
-  }
-}
-
-async function triggerCuriosity() {
-  if (!ghost.value) return
-  try {
-    const result = await invoke<{
-      triggered: boolean
-      reason?: string
-      interests?: Array<{ topic: string; weight: number }>
-      loveHate?: number
-    }>('trigger_curiosity')
-    if (!result.triggered) {
-      showError(result.reason || '好奇心不足，无法触发')
-      return
-    }
-    showSuccess('好奇心已触发')
-    await emit('settings-updated', { section: 'curiosity' })
-  } catch (e: any) {
-    showError('触发失败: ' + e)
-  }
-}
+let lastGhostDir = ''
 
 async function saveGhost() {
   if (!ghost.value) return
   try {
+    const defaultDir = lastGhostDir || await appDataDir()
     const path = await save({
       filters: [{ name: 'Ghost 文件', extensions: ['ghost'] }],
-      defaultPath: 'deskpet.ghost',
+      defaultPath: defaultDir + '\\deskpet.ghost',
     })
     if (!path) return
+    lastGhostDir = dirOf(path)
     await invoke('save_ghost', { path })
     showSuccess('灵魂已保存')
     await emit('settings-updated', { section: 'ghost' })
@@ -230,11 +58,14 @@ async function saveGhost() {
 
 async function loadGhost() {
   try {
+    const defaultDir = lastGhostDir || await appDataDir()
     const path = await open({
       filters: [{ name: 'Ghost 文件', extensions: ['ghost'] }],
+      defaultPath: defaultDir,
       multiple: false,
     })
     if (!path) return
+    lastGhostDir = dirOf(path)
     await invoke('load_ghost', { path })
     await fetchGhostStatus()
     showSuccess('灵魂已加载')
