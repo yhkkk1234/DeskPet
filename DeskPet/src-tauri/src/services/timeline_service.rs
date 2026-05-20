@@ -8,6 +8,9 @@ const INACTIVITY_WARN_HOURS: i64 = 24;
 const INACTIVITY_IGNORE_HOURS: i64 = 72;
 const CURIOSITY_CHECK_INTERVAL_SECS: i64 = 300;
 const EMOTIONAL_TICK_INTERVAL_SECS: i64 = 60;
+const DREAM_MIN_INACTIVITY_SECS: i64 = 3600;
+const DREAM_COOLDOWN_SECS: i64 = 21600;
+const DIARY_MIN_INTERVAL_SECS: i64 = 43200;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimelineState {
@@ -15,6 +18,8 @@ pub struct TimelineState {
     pub last_emotional_tick: DateTime<Utc>,
     pub last_curiosity_check: DateTime<Utc>,
     pub last_inactivity_event: DateTime<Utc>,
+    pub last_dream_time: DateTime<Utc>,
+    pub last_diary_time: DateTime<Utc>,
     pub event_manager: EmotionalEventManager,
 }
 
@@ -26,6 +31,8 @@ impl Default for TimelineState {
             last_emotional_tick: now,
             last_curiosity_check: now,
             last_inactivity_event: now,
+            last_dream_time: now,
+            last_diary_time: now,
             event_manager: EmotionalEventManager::default(),
         }
     }
@@ -50,6 +57,18 @@ impl TimelineState {
         let elapsed = Utc::now() - self.last_curiosity_check;
         elapsed.num_seconds() >= CURIOSITY_CHECK_INTERVAL_SECS
     }
+
+    pub fn should_generate_dream(&self) -> bool {
+        let since_interaction = Utc::now() - self.last_interaction;
+        let since_last_dream = Utc::now() - self.last_dream_time;
+        since_interaction.num_seconds() >= DREAM_MIN_INACTIVITY_SECS
+            && since_last_dream.num_seconds() >= DREAM_COOLDOWN_SECS
+    }
+
+    pub fn should_generate_diary(&self) -> bool {
+        let since_last = Utc::now() - self.last_diary_time;
+        since_last.num_seconds() >= DIARY_MIN_INTERVAL_SECS
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +77,8 @@ pub struct TimelineTickResult {
     pub baseline_after_tick: f64,
     pub inactivity_event: Option<InactivityEventResult>,
     pub curiosity_triggered: bool,
+    pub dream_triggered: bool,
+    pub diary_triggered: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,11 +129,17 @@ impl TimelineService {
             false
         };
 
+        let dream_triggered = timeline.should_generate_dream();
+
+        let diary_triggered = timeline.should_generate_diary();
+
         TimelineTickResult {
             love_hate_after_tick: ghost.soul.sensibility.love_hate,
             baseline_after_tick: ghost.soul.sensibility.baseline,
             inactivity_event,
             curiosity_triggered,
+            dream_triggered,
+            diary_triggered,
         }
     }
 

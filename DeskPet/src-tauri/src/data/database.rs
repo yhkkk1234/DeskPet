@@ -31,6 +31,24 @@ impl Database {
             .execute_batch(migration_sql2)
             .map_err(|e| format!("Migration 002 failed: {}", e))?;
 
+        // 运行 003_add_dreams.sql
+        let migration_sql3 = include_str!("../../migrations/003_add_dreams.sql");
+        self.conn
+            .execute_batch(migration_sql3)
+            .map_err(|e| format!("Migration 003 failed: {}", e))?;
+
+        // 运行 004_add_achievements.sql
+        let migration_sql4 = include_str!("../../migrations/004_add_achievements.sql");
+        self.conn
+            .execute_batch(migration_sql4)
+            .map_err(|e| format!("Migration 004 failed: {}", e))?;
+
+        // 运行 005_add_diary.sql
+        let migration_sql5 = include_str!("../../migrations/005_add_diary.sql");
+        self.conn
+            .execute_batch(migration_sql5)
+            .map_err(|e| format!("Migration 005 failed: {}", e))?;
+
         Ok(())
     }
 
@@ -544,6 +562,138 @@ impl Database {
             .map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    pub fn save_dream(
+        &self,
+        id: &str,
+        ghost_id: &str,
+        summary: &str,
+        memory_snippet: Option<&str>,
+        dream_type: &str,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO Dreams (Id, GhostId, Summary, MemorySnippet, DreamType, CreatedAt) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
+                params![id, ghost_id, summary, memory_snippet, dream_type],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_recent_dreams(&self, ghost_id: &str, limit: usize) -> Result<Vec<DreamRow>, String> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT Id, GhostId, Summary, MemorySnippet, DreamType, CreatedAt FROM Dreams WHERE GhostId = ?1 ORDER BY CreatedAt DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![ghost_id, limit], |row| {
+                Ok(DreamRow {
+                    id: row.get(0)?,
+                    ghost_id: row.get(1)?,
+                    summary: row.get(2)?,
+                    memory_snippet: row.get(3)?,
+                    dream_type: row.get(4)?,
+                    created_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        Ok(rows)
+    }
+
+    pub fn save_achievement(&self, id: &str, ghost_id: &str, key: &str) -> Result<bool, String> {
+        let rows = self.conn.execute(
+            "INSERT OR IGNORE INTO Achievements (Id, GhostId, AchievementKey) VALUES (?1, ?2, ?3)",
+            params![id, ghost_id, key],
+        ).map_err(|e| e.to_string())?;
+        Ok(rows > 0)
+    }
+
+    pub fn get_achievements(&self, ghost_id: &str) -> Result<Vec<AchievementRow>, String> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT Id, GhostId, AchievementKey, UnlockedAt FROM Achievements WHERE GhostId = ?1 ORDER BY UnlockedAt ASC",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![ghost_id], |row| {
+                Ok(AchievementRow {
+                    id: row.get(0)?,
+                    ghost_id: row.get(1)?,
+                    achievement_key: row.get(2)?,
+                    unlocked_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        Ok(rows)
+    }
+
+    pub fn count_chat_messages(&self, ghost_id: &str) -> Result<usize, String> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM ChatMessages WHERE GhostId = ?1",
+            params![ghost_id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        Ok(count as usize)
+    }
+
+    pub fn count_emotional_events(&self, ghost_id: &str) -> Result<usize, String> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM EmotionalEvents WHERE GhostId = ?1",
+            params![ghost_id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        Ok(count as usize)
+    }
+
+    pub fn count_dreams(&self, ghost_id: &str) -> Result<usize, String> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM Dreams WHERE GhostId = ?1",
+            params![ghost_id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        Ok(count as usize)
+    }
+
+    pub fn save_diary(&self, id: &str, ghost_id: &str, summary: &str, entry_date: &str) -> Result<(), String> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO Diary (Id, GhostId, Summary, EntryDate) VALUES (?1, ?2, ?3, ?4)",
+            params![id, ghost_id, summary, entry_date],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_diary_entries(&self, ghost_id: &str, limit: usize) -> Result<Vec<DiaryRow>, String> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT Id, GhostId, Summary, EntryDate, CreatedAt FROM Diary WHERE GhostId = ?1 ORDER BY EntryDate DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![ghost_id, limit], |row| {
+                Ok(DiaryRow {
+                    id: row.get(0)?,
+                    ghost_id: row.get(1)?,
+                    summary: row.get(2)?,
+                    entry_date: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        Ok(rows)
+    }
 }
 
 #[derive(Debug)]
@@ -625,4 +775,31 @@ pub struct ConversationChunkRow {
     pub summary: String,
     pub importance: f64,
     pub token_count: Option<i32>,
+}
+
+#[derive(Debug)]
+pub struct DreamRow {
+    pub id: String,
+    pub ghost_id: String,
+    pub summary: String,
+    pub memory_snippet: Option<String>,
+    pub dream_type: String,
+    pub created_at: String,
+}
+
+#[derive(Debug)]
+pub struct AchievementRow {
+    pub id: String,
+    pub ghost_id: String,
+    pub achievement_key: String,
+    pub unlocked_at: String,
+}
+
+#[derive(Debug)]
+pub struct DiaryRow {
+    pub id: String,
+    pub ghost_id: String,
+    pub summary: String,
+    pub entry_date: String,
+    pub created_at: String,
 }

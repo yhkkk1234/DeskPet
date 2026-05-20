@@ -6,6 +6,7 @@ use crate::core::soul::emotional_event::{EmotionalEvent, EmotionalEventType};
 use crate::data::ghost_file::GhostFileManager;
 use crate::services::ai_service::{AIService, ChatMessage as AIChatMessage};
 use crate::services::memory_compressor::MemoryCompressor;
+use crate::services::memory_service::MemoryService;
 use rand::thread_rng;
 use tauri::State;
 
@@ -485,5 +486,92 @@ pub async fn curiosity_research(state: State<'_, AppState>) -> Result<serde_json
         "researched": true,
         "interest": top_interest,
         "finding": result,
+    }))
+}
+
+/// 梦境系统: 基于近期记忆生成碎片化梦境叙事
+#[tauri::command]
+pub async fn generate_dream(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let (ghost_id, ghost_name) = {
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        let ghost = locked.as_ref().ok_or("No ghost loaded")?;
+        (ghost.ghost_id.clone(), ghost.name.clone())
+    };
+
+    let ai_config = {
+        state.ai_config.lock().map_err(|e| e.to_string())?
+            .clone()
+            .ok_or("AI not configured")?
+    };
+
+    let recent_memories: Vec<String> = {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            let mem_service = MemoryService::new(db, &ghost_id);
+            let stm = db.get_short_term_memories(&ghost_id, 10).unwrap_or_default();
+            let ltm = db.get_long_term_memories(&ghost_id, 5).unwrap_or_default();
+            let mut snippets: Vec<String> = Vec::new();
+            for m in &stm {
+                snippets.push(m.summary.clone());
+            }
+            for m in &ltm {
+                if m.importance > 0.5 && !snippets.iter().any(|s| s.contains(&m.summary[..m.summary.len().min(20)])) {
+                    snippets.push(m.summary.clone());
+                }
+            }
+            let _ = mem_service;
+            snippets
+        } else {
+            Vec::new()
+        }
+    };
+
+    let memory_text = if recent_memories.is_empty() {
+        "（暂无记忆，这是你第一次做梦）".to_string()
+    } else {
+        recent_memories.iter().enumerate()
+            .map(|(i, s)| format!("{}. {}", i + 1, s))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let system_prompt = format!(
+        "你是{}，一个桌宠精灵。你现在睡着了，正在做一个梦。\\n\
+         请基于以下近期记忆碎片，生成一段简短、碎片化、略带超现实感的梦境描述（~60字中文）。\\n\
+         语气要像刚睡醒迷迷糊糊在回忆梦境：可以有跳跃感、不合逻辑，但要隐约和记忆相关。\\n\
+         不要像写文章——要像喃喃自语。\\n\\n\
+         近期记忆碎片：\\n{}",
+        ghost_name, memory_text
+    );
+
+    let ai_service = AIService::new(ai_config);
+    let dream_text = ai_service.chat(
+        "你是梦境生成系统。只输出梦境内容，不要任何前缀说明。",
+        &vec![AIChatMessage { role: "user".into(), content: system_prompt }],
+    ).await?;
+
+    let dream_summary = dream_text.trim().to_string();
+    let dream_id = uuid::Uuid::new_v4().to_string();
+
+    let memory_snippet = recent_memories.first().map(|s| s.chars().take(100).collect::<String>());
+
+    {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            if let Err(e) = db.save_dream(&dream_id, &ghost_id, &dream_summary, memory_snippet.as_deref(), "daydream") {
+                eprintln!("[梦境] 保存失败: {}", e);
+            }
+        }
+    }
+
+    {
+        if let Ok(mut timeline) = state.timeline.lock() {
+            timeline.last_dream_time = chrono::Utc::now();
+        }
+    }
+
+    Ok(serde_json::json!({
+        "dreamId": dream_id,
+        "dreamText": dream_summary,
     }))
 }

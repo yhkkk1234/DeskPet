@@ -229,6 +229,20 @@ export function useAnimation() {
     currentAnimationState.value = state
   }
 
+  function holdAnimation(state: AnimationState): () => void {
+    const gen = ++animationGen
+    isPerformingBehavior.value = true
+    currentAnimationState.value = state
+    stopDailyRoutine()
+    return () => {
+      if (animationGen === gen) {
+        currentAnimationState.value = 'idle'
+        isPerformingBehavior.value = false
+      }
+      startDailyRoutine()
+    }
+  }
+
   function playOneShot(state: AnimationState, durationMs = 600): Promise<void> {
     const gen = ++animationGen
     isPerformingBehavior.value = true
@@ -601,6 +615,7 @@ export function useAnimation() {
     movementStyle,
     updateMood,
     setAnimationState,
+    holdAnimation,
     setPersonality,
     playOneShot,
     startSpeaking,

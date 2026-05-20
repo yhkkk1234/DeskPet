@@ -38,7 +38,7 @@ const error = ref('')
 
 const { ghostId, pushSystemMessage, clearMessages, loadHistory } = useChat()
 const chatLoading = ref(false)
-const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, stopBlink, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation()
+const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, stopBlink, holdAnimation, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation()
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, framePositions, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
 const showToolbar = ref(false)
@@ -248,6 +248,19 @@ async function curiosityResearch() {
   }
 }
 
+async function checkAndNotifyAchievements() {
+  try {
+    const result = await invoke<{ newAchievements: Array<{ key: string; name: string; description: string }> }>('check_achievements')
+    if (result.newAchievements && result.newAchievements.length > 0) {
+      for (const a of result.newAchievements) {
+        pushSystemMessage(`🏆 成就解锁: ${a.name} — ${a.description}`)
+      }
+    }
+  } catch (e) {
+    // 静默失败，不影响主流程
+  }
+}
+
 function acceptEnhancedPrivacy() {
   enhancedPrivacyAccepted.value = true
   localStorage.setItem('deskpet_enhanced_privacy', 'true')
@@ -278,6 +291,8 @@ async function tickGhost() {
         hoursAway: number
       } | null
       curiosityTriggered: boolean
+      dreamTriggered: boolean
+      diaryTriggered: boolean
     }>('timeline_tick')
     if (ghost.value) {
       ghost.value.loveHate = result.loveHate
@@ -299,6 +314,35 @@ async function tickGhost() {
         curiosityResearch()
       }
     }
+    if (result.dreamTriggered && !dreamInProgress) {
+      dreamInProgress = true
+      const release = holdAnimation('sleep')
+      try {
+        const dream = await invoke<{ dreamId: string; dreamText: string }>('generate_dream')
+        if (dream.dreamText) {
+          pushSystemMessage(`💤 刚才好像梦见了... ${dream.dreamText}`)
+        }
+      } catch (e) {
+        console.warn('梦境生成失败:', e)
+      } finally {
+        release()
+        dreamInProgress = false
+        checkAndNotifyAchievements()
+      }
+    }
+    if (result.diaryTriggered && !diaryInProgress) {
+      diaryInProgress = true
+      try {
+        const diary = await invoke<{ diaryId: string; entryDate: string; diaryText: string }>('generate_diary')
+        if (diary.diaryText) {
+          pushSystemMessage(`📔 ${diary.entryDate} 的日记\n${diary.diaryText}`)
+        }
+      } catch (e) {
+        console.warn('日记生成失败:', e)
+      } finally {
+        diaryInProgress = false
+      }
+    }
   } catch (e: any) {
     console.error('Tick error:', e)
   } finally {
@@ -308,6 +352,8 @@ async function tickGhost() {
 
 let tickInterval: ReturnType<typeof setInterval> | null = null
 let tickInProgress = false
+let dreamInProgress = false
+let diaryInProgress = false
 let autoSaveInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
 let chatHotkeyUnlisten: (() => void) | null = null
@@ -498,6 +544,7 @@ onMounted(async () => {
       }
     }
     chatLoading.value = false
+    checkAndNotifyAchievements()
   })
 
   let speakingActive = false
@@ -731,6 +778,7 @@ async function executeTransfer() {
     if (ghost.value) {
       ghost.value = JSON.parse(await invoke<string>('get_ghost_status'))
     }
+    checkAndNotifyAchievements()
   } catch (e: any) {
     error.value = `灵魂传送失败: ${e}`
     transferPhase.value = 'idle'

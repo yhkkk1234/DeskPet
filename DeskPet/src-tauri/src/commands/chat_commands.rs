@@ -527,12 +527,14 @@ pub fn timeline_tick(state: State<'_, AppState>) -> Result<serde_json::Value, St
         eprintln!("[经验衰减] {}条经验熟练度已衰减", decayed_experiences);
     }
 
-    Ok(serde_json::json!({
-        "loveHate": tick_result.love_hate_after_tick,
-        "baseline": tick_result.baseline_after_tick,
-        "inactivityEvent": tick_result.inactivity_event,
-        "curiosityTriggered": tick_result.curiosity_triggered,
-    }))
+            Ok(serde_json::json!({
+                "loveHate": tick_result.love_hate_after_tick,
+                "baseline": tick_result.baseline_after_tick,
+                "inactivityEvent": tick_result.inactivity_event,
+                "curiosityTriggered": tick_result.curiosity_triggered,
+                "dreamTriggered": tick_result.dream_triggered,
+                "diaryTriggered": tick_result.diary_triggered,
+            }))
 }
 
 #[tauri::command]
@@ -781,4 +783,184 @@ pub async fn speak_edge_tts(
     let audio_bytes = tts.synthesize(&text, &voice_name).await?;
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&audio_bytes))
+}
+
+/// P24: 成就系统 — 检查并解锁新成就
+#[tauri::command]
+pub fn check_achievements(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let (ghost_id, generation, love_hate) = {
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        let g = locked.as_ref().ok_or("No ghost loaded")?;
+        (g.ghost_id.clone(), g.generation, g.soul.sensibility.love_hate)
+    };
+
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("数据库未初始化")?;
+
+    let mut new_achievements: Vec<serde_json::Value> = Vec::new();
+
+    let chat_count = db.count_chat_messages(&ghost_id).unwrap_or(0);
+    let dream_count = db.count_dreams(&ghost_id).unwrap_or(0);
+
+    let checks: Vec<(&str, bool, &str)> = vec![
+        ("first_chat", chat_count >= 2, "💬 初次对话 — 完成了第一次交流"),
+        ("chat_10", chat_count >= 20, "💬 话痨 — 累计20条对话"),
+        ("chat_100", chat_count >= 200, "💬 挚友 — 累计200条对话"),
+        ("love_50", love_hate >= 50.0, "❤️ 暖心 — 好感度突破50"),
+        ("love_80", love_hate >= 80.0, "💕 亲密 — 好感度突破80"),
+        ("transfer_1", generation > 1, "🔄 新生 — 完成第一次灵魂传送"),
+        ("dream_first", dream_count >= 1, "💤 初梦 — 第一次做梦"),
+    ];
+
+    for (key, condition, _desc) in &checks {
+        if *condition {
+            let id = uuid::Uuid::new_v4().to_string();
+            if db.save_achievement(&id, &ghost_id, key)? {
+                new_achievements.push(serde_json::json!({
+                    "key": key,
+                    "name": get_achievement_name(key),
+                    "description": get_achievement_desc(key),
+                }));
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "newAchievements": new_achievements,
+    }))
+}
+
+fn get_achievement_name(key: &str) -> &str {
+    match key {
+        "first_chat" => "初次对话",
+        "chat_10" => "话痨",
+        "chat_100" => "挚友",
+        "love_50" => "暖心",
+        "love_80" => "亲密",
+        "transfer_1" => "新生",
+        "dream_first" => "初梦",
+        _ => "未知成就",
+    }
+}
+
+fn get_achievement_desc(key: &str) -> &str {
+    match key {
+        "first_chat" => "完成了第一次交流",
+        "chat_10" => "累计20条对话",
+        "chat_100" => "累计200条对话",
+        "love_50" => "好感度突破50",
+        "love_80" => "好感度突破80",
+        "transfer_1" => "完成第一次灵魂传送",
+        "dream_first" => "第一次做梦",
+        _ => "",
+    }
+}
+
+/// P24: 每日日记 — 基于当天记忆生成宠物视角日记
+#[tauri::command]
+pub async fn generate_diary(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let (ghost_id, ghost_name, love_hate) = {
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        let g = locked.as_ref().ok_or("No ghost loaded")?;
+        (g.ghost_id.clone(), g.name.clone(), g.soul.sensibility.love_hate)
+    };
+
+    let ai_config = {
+        state.ai_config.lock().map_err(|e| e.to_string())?
+            .clone()
+            .ok_or("AI not configured")?
+    };
+
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    let memories: Vec<String> = {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            let stm = db.get_short_term_memories(&ghost_id, 15).unwrap_or_default();
+            let events = db.load_emotional_events(&ghost_id, 10).unwrap_or_default();
+            let mut snippets: Vec<String> = stm.iter().map(|m| m.summary.clone()).collect();
+            for e in &events {
+                if let Some(ref desc) = e.description {
+                    snippets.push(format!("[情感事件: {}] {}", e.event_type, desc));
+                }
+            }
+            snippets
+        } else {
+            Vec::new()
+        }
+    };
+
+    let memory_text = if memories.is_empty() {
+        "（今天还没有任何记忆）".to_string()
+    } else {
+        memories.iter().enumerate()
+            .map(|(i, s)| format!("{}. {}", i + 1, s))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let mood = if love_hate > 30.0 { "愉快" } else if love_hate > 0.0 { "平静" } else { "低落" };
+
+    let system_prompt = format!(
+        "你是{}，一个桌宠精灵。请根据以下今天的记忆碎片，以宠物口吻写一篇今天的简短日记（~100字中文）。\n\
+         今天你的整体心情：{}。\n\
+         风格：第一人称、私密、像对自己说话。可以提到主人、提到情绪变化。\n\n\
+         今天的记忆：\n{}",
+        ghost_name, mood, memory_text
+    );
+
+    let ai_service = AIService::new(ai_config);
+    let diary_text = ai_service.chat(
+        "你是日记生成系统。只输出日记内容，不要任何前缀说明。",
+        &vec![ChatMessage { role: "user".into(), content: system_prompt }],
+    ).await?;
+
+    let diary_id = uuid::Uuid::new_v4().to_string();
+
+    {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            if let Err(e) = db.save_diary(&diary_id, &ghost_id, diary_text.trim(), &today) {
+                eprintln!("[日记] 保存失败: {}", e);
+            }
+        }
+    }
+
+    {
+        if let Ok(mut timeline) = state.timeline.lock() {
+            timeline.last_diary_time = chrono::Utc::now();
+        }
+    }
+
+    Ok(serde_json::json!({
+        "diaryId": diary_id,
+        "entryDate": today,
+        "diaryText": diary_text.trim(),
+    }))
+}
+
+#[tauri::command]
+pub fn get_achievements(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let ghost_id = {
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        locked.as_ref().map(|g| g.ghost_id.clone()).ok_or("No ghost loaded")?
+    };
+
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("数据库未初始化")?;
+
+    let rows = db.get_achievements(&ghost_id)?;
+    let achievements: Vec<serde_json::Value> = rows.iter().map(|r| {
+        serde_json::json!({
+            "key": r.achievement_key,
+            "name": get_achievement_name(&r.achievement_key),
+            "description": get_achievement_desc(&r.achievement_key),
+            "unlockedAt": r.unlocked_at,
+        })
+    }).collect();
+
+    Ok(serde_json::json!({
+        "achievements": achievements,
+        "total": achievements.len(),
+    }))
 }
