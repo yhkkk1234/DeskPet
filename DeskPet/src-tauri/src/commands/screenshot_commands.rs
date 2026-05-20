@@ -59,6 +59,7 @@ pub async fn analyze_screenshot(
 
     let name = ghost.name.clone();
     let love_hate = ghost.soul.sensibility.love_hate;
+    let identity = ghost.persona.clone().unwrap_or_else(|| "一个有感情、有个性的桌宠".to_string());
 
     let personality_desc = {
         let dims = &ghost.soul.innate_tendency.self_dims;
@@ -74,11 +75,11 @@ pub async fn analyze_screenshot(
     };
 
     let system_prompt = format!(
-        "你是{}，一个有感情、有个性的桌宠。你的主人刚截取了屏幕上的一张图片，想让你看看。\
+        "你是{}，{}。你的主人刚截取了屏幕上的一张图片，想让你看看。\
          请用你自己的视角和语气描述你看到的内容，保持好奇和有趣。\
          你的性格倾向：{}。当前对主人的好感度：{:.1}/100。\
          用简短的中文回复，像一个活生生的伙伴在观察主人的屏幕。",
-        name, personality_desc, love_hate
+        name, identity, personality_desc, love_hate
     );
 
     let default_question = "请看看这张截图，告诉我你看到了什么？你对这些内容有什么想法？";

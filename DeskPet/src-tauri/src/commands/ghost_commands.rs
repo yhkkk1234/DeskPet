@@ -493,10 +493,10 @@ pub async fn curiosity_research(state: State<'_, AppState>) -> Result<serde_json
 /// 梦境系统: 基于近期记忆生成碎片化梦境叙事
 #[tauri::command]
 pub async fn generate_dream(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let (ghost_id, ghost_name) = {
+    let (ghost_id, ghost_name, ghost_persona) = {
         let locked = state.ghost.lock().map_err(|e| e.to_string())?;
         let ghost = locked.as_ref().ok_or("No ghost loaded")?;
-        (ghost.ghost_id.clone(), ghost.name.clone())
+        (ghost.ghost_id.clone(), ghost.name.clone(), ghost.persona.clone())
     };
 
     let ai_config = {
@@ -536,13 +536,14 @@ pub async fn generate_dream(state: State<'_, AppState>) -> Result<serde_json::Va
             .join("\n")
     };
 
+    let identity = ghost_persona.as_deref().unwrap_or("一个桌宠精灵");
     let system_prompt = format!(
-        "你是{}，一个桌宠精灵。你现在睡着了，正在做一个梦。\\n\
+        "你是{}，{}。你现在睡着了，正在做一个梦。\\n\
          请基于以下近期记忆碎片，生成一段简短、碎片化、略带超现实感的梦境描述（~60字中文）。\\n\
          语气要像刚睡醒迷迷糊糊在回忆梦境：可以有跳跃感、不合逻辑，但要隐约和记忆相关。\\n\
          不要像写文章——要像喃喃自语。\\n\\n\
          近期记忆碎片：\\n{}",
-        ghost_name, memory_text
+        ghost_name, identity, memory_text
     );
 
     let ai_service = AIService::new(ai_config);
@@ -609,15 +610,16 @@ pub async fn generate_persona(state: State<'_, AppState>) -> Result<String, Stri
         ghost.soul.innate_tendency.self_dims.clone()
     };
 
-    let prompt = format!(
+    let system_prompt = "你是一个角色设计师。根据给定的性格数值，生成简洁的角色简介。只输出简介本身，不要评价、不要多余文字。";
+
+    let user_prompt = format!(
         "根据以下性格数值，用30-50字写一段简洁的角色简介，描述一个住在桌面上的虚拟角色：\n\
-         - 开放性：{:.0}%\n\
-         - 尽责性：{:.0}%\n\
-         - 外向性：{:.0}%\n\
-         - 宜人性：{:.0}%\n\
-         - 情绪稳定性：{:.0}%\n\
-         - 创造力：{:.0}%\n\n\
-         只输出角色简介，不要评价、不要多余文字。",
+- 开放性：{:.0}%\n\
+- 尽责性：{:.0}%\n\
+- 外向性：{:.0}%\n\
+- 宜人性：{:.0}%\n\
+- 情绪稳定性：{:.0}%\n\
+- 创造力：{:.0}%",
         personality.openness * 100.0,
         personality.conscientiousness * 100.0,
         personality.extraversion * 100.0,
@@ -632,7 +634,10 @@ pub async fn generate_persona(state: State<'_, AppState>) -> Result<String, Stri
     };
 
     let ai_service = AIService::new(ai_config);
-    let response = ai_service.chat(&prompt, &[]).await?;
+    let response = ai_service.chat(
+        system_prompt,
+        &[AIChatMessage { role: "user".into(), content: user_prompt }],
+    ).await?;
 
     let persona = response.trim().to_string();
     if persona.is_empty() {

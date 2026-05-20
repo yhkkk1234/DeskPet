@@ -176,8 +176,7 @@ async function generateGhost() {
 
     // 自动生成初始人设
     try {
-      const persona = await invoke<string>('generate_persona')
-      ghost.value.persona = persona
+      await invoke<string>('generate_persona')
     } catch {
       // AI 未配置时静默跳过，使用默认描述
     }
