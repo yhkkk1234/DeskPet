@@ -569,6 +569,7 @@ pub async fn generate_dream(state: State<'_, AppState>) -> Result<serde_json::Va
     {
         if let Ok(mut timeline) = state.timeline.lock() {
             timeline.last_dream_time = chrono::Utc::now();
+            timeline.is_sleeping = false;
         }
     }
 

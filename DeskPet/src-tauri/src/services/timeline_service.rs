@@ -20,6 +20,7 @@ pub struct TimelineState {
     pub last_inactivity_event: DateTime<Utc>,
     pub last_dream_time: DateTime<Utc>,
     pub last_diary_time: DateTime<Utc>,
+    pub is_sleeping: bool,
     pub event_manager: EmotionalEventManager,
 }
 
@@ -33,6 +34,7 @@ impl Default for TimelineState {
             last_inactivity_event: now,
             last_dream_time: now,
             last_diary_time: now,
+            is_sleeping: false,
             event_manager: EmotionalEventManager::default(),
         }
     }
@@ -41,6 +43,7 @@ impl Default for TimelineState {
 impl TimelineState {
     pub fn record_interaction(&mut self) {
         self.last_interaction = Utc::now();
+        self.is_sleeping = false;
     }
 
     pub fn should_emotional_tick(&self) -> bool {
@@ -59,6 +62,9 @@ impl TimelineState {
     }
 
     pub fn should_generate_dream(&self) -> bool {
+        if self.is_sleeping {
+            return false;
+        }
         let since_interaction = Utc::now() - self.last_interaction;
         let since_last_dream = Utc::now() - self.last_dream_time;
         since_interaction.num_seconds() >= DREAM_MIN_INACTIVITY_SECS
@@ -130,6 +136,9 @@ impl TimelineService {
         };
 
         let sleep_triggered = timeline.should_generate_dream();
+        if sleep_triggered {
+            timeline.is_sleeping = true;
+        }
 
         let diary_triggered = timeline.should_generate_diary();
 

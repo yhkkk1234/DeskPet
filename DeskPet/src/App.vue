@@ -588,6 +588,17 @@ function handleChatHotkey() {
 
 async function wakeUpPet() {
   if (!asleep.value || !ghost.value) return
+
+  // 立即唤醒，不等 AI
+  if (sleepRelease) {
+    sleepRelease()
+    sleepRelease = null
+  }
+  asleep.value = false
+
+  invoke('record_interaction').catch(() => {})
+
+  // 后台生成梦境
   try {
     const dream = await invoke<{ dreamId: string; dreamText: string }>('generate_dream')
     if (dream.dreamText) {
@@ -596,12 +607,6 @@ async function wakeUpPet() {
     checkAndNotifyAchievements()
   } catch (e) {
     console.warn('梦境生成失败:', e)
-  } finally {
-    if (sleepRelease) {
-      sleepRelease()
-      sleepRelease = null
-    }
-    asleep.value = false
   }
 }
 
