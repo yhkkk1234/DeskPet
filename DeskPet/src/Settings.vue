@@ -2,6 +2,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { open, save } from '@tauri-apps/plugin-dialog'
 import { ref, computed, onMounted } from 'vue'
 import type { RendererType } from './composables/usePetRenderer'
 import EmotionTimeline from './components/EmotionTimeline.vue'
@@ -152,15 +153,31 @@ function switchRenderer(type: RendererType) {
   emit('settings-updated', { section: 'renderer' })
 }
 
-function updateSpriteSrc() {
-  localStorage.setItem('deskpet_sprite_src', spriteSrc.value)
-  localStorage.setItem('deskpet_sprite_json_src', spriteJsonSrc.value)
-  emit('settings-updated', { section: 'renderer' })
+async function updateSpriteSrc() {
+  const file = await open({ filters: [{ name: 'PNG', extensions: ['png'] }] })
+  if (file) {
+    spriteSrc.value = file
+    localStorage.setItem('deskpet_sprite_src', file)
+    emit('settings-updated', { section: 'renderer' })
+  }
 }
 
-function updateLottieSrc() {
-  localStorage.setItem('deskpet_lottie_src', lottieSrc.value)
-  emit('settings-updated', { section: 'renderer' })
+async function updateSpriteJsonSrc() {
+  const file = await open({ filters: [{ name: 'JSON', extensions: ['json'] }] })
+  if (file) {
+    spriteJsonSrc.value = file
+    localStorage.setItem('deskpet_sprite_json_src', file)
+    emit('settings-updated', { section: 'renderer' })
+  }
+}
+
+async function updateLottieSrc() {
+  const dir = await open({ directory: true, title: '选择 Lottie 动画目录' })
+  if (dir) {
+    lottieSrc.value = dir
+    localStorage.setItem('deskpet_lottie_src', dir)
+    emit('settings-updated', { section: 'renderer' })
+  }
 }
 
 async function setCuriosityLevel(level: string) {
@@ -198,9 +215,13 @@ async function triggerCuriosity() {
 async function saveGhost() {
   if (!ghost.value) return
   try {
-    const path = saveLoadPath.value.trim() || 'deskpet.ghost'
+    const path = await save({
+      filters: [{ name: 'Ghost 文件', extensions: ['ghost'] }],
+      defaultPath: 'deskpet.ghost',
+    })
+    if (!path) return
     await invoke('save_ghost', { path })
-    showSuccess('灵魂已保存到 ' + path)
+    showSuccess('灵魂已保存')
     await emit('settings-updated', { section: 'ghost' })
   } catch (e: any) {
     showError('保存失败: ' + e)
@@ -208,11 +229,15 @@ async function saveGhost() {
 }
 
 async function loadGhost() {
-  const path = saveLoadPath.value.trim() || 'deskpet.ghost'
   try {
+    const path = await open({
+      filters: [{ name: 'Ghost 文件', extensions: ['ghost'] }],
+      multiple: false,
+    })
+    if (!path) return
     await invoke('load_ghost', { path })
     await fetchGhostStatus()
-    showSuccess('灵魂已从 ' + path + ' 加载')
+    showSuccess('灵魂已加载')
     await emit('settings-updated', { section: 'ghost' })
   } catch (e: any) {
     showError('加载失败: ' + e)
@@ -375,14 +400,23 @@ const diaryEntryText = computed(() => {
             <button @click="switchRenderer('lottie')" :class="['btn', rendererType === 'lottie' ? 'btn-ren-active' : 'btn-ren-off']">Lottie</button>
           </div>
           <div v-if="rendererType === 'spritesheet'" class="sprite-config">
-            <label class="config-label">精灵图路径</label>
-            <input v-model="spriteSrc" class="config-input" placeholder="spritesheet.png" @change="updateSpriteSrc" />
-            <label class="config-label">JSON 描述路径</label>
-            <input v-model="spriteJsonSrc" class="config-input" placeholder="spritesheet.json" @change="updateSpriteSrc" />
+            <label class="config-label">精灵图</label>
+            <div class="file-picker-row">
+              <span class="file-path">{{ spriteSrc || '未选择' }}</span>
+              <button @click="updateSpriteSrc" class="btn-browse">浏览...</button>
+            </div>
+            <label class="config-label">JSON 描述</label>
+            <div class="file-picker-row">
+              <span class="file-path">{{ spriteJsonSrc || '未选择' }}</span>
+              <button @click="updateSpriteJsonSrc" class="btn-browse">浏览...</button>
+            </div>
           </div>
           <div v-if="rendererType === 'lottie'" class="sprite-config">
             <label class="config-label">Lottie 动画目录</label>
-            <input v-model="lottieSrc" class="config-input" placeholder="/pet/lottie/" @change="updateLottieSrc" />
+            <div class="file-picker-row">
+              <span class="file-path">{{ lottieSrc || '未选择' }}</span>
+              <button @click="updateLottieSrc" class="btn-browse">浏览...</button>
+            </div>
             <p class="field-hint">目录下应包含: idle.json / happy.json / content.json / curious.json / cold.json / distant.json / speaking.json / surprise.json</p>
           </div>
         </div>
@@ -490,11 +524,8 @@ const diaryEntryText = computed(() => {
         <div v-if="ghost" class="settings-section">
           <div class="settings-section-title">💾 数据</div>
           <div class="save-load-panel">
-            <input v-model="saveLoadPath" class="config-input" placeholder="文件名 (默认: deskpet.ghost)" />
-            <div class="save-load-buttons">
-              <button @click="saveGhost" class="btn btn-save">保存灵魂</button>
-              <button @click="loadGhost" class="btn btn-load">加载灵魂</button>
-            </div>
+            <button @click="saveGhost" class="btn btn-save">📁 保存灵魂...</button>
+            <button @click="loadGhost" class="btn btn-load">📂 加载灵魂...</button>
           </div>
         </div>
 
@@ -1307,5 +1338,41 @@ const diaryEntryText = computed(() => {
   padding: 4px 10px;
   cursor: pointer;
   font-size: 11px;
+}
+
+.file-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.file-path {
+  flex: 1;
+  font-size: 11px;
+  color: #666;
+  padding: 4px 8px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-browse {
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #555;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.btn-browse:hover {
+  background: #e0e0e0;
+  border-color: #ccc;
 }
 </style>
