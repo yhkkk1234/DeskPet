@@ -33,6 +33,33 @@ interface GhostStatus {
   persona?: string
 }
 
+interface AppearanceConfig {
+  hueRotate: number
+  brightness: number
+  saturate: number
+  contrast: number
+  opacity: number
+  scale: number
+}
+
+const DEFAULT_APPEARANCE: AppearanceConfig = {
+  hueRotate: 0,
+  brightness: 1,
+  saturate: 1,
+  contrast: 1,
+  opacity: 1,
+  scale: 1,
+}
+
+function loadAppearance(): AppearanceConfig {
+  try {
+    const saved = localStorage.getItem('deskpet_appearance')
+    return saved ? { ...DEFAULT_APPEARANCE, ...JSON.parse(saved) } : DEFAULT_APPEARANCE
+  } catch { return DEFAULT_APPEARANCE }
+}
+
+const petAppearance = ref<AppearanceConfig>(loadAppearance())
+
 const ghost = ref<GhostStatus | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -163,6 +190,15 @@ const petEmoji = computed(() => {
 })
 
 const petCssClass = computed(() => ['pet-sprite-wrapper'])
+
+const petStyleOverride = computed(() => {
+  const a = petAppearance.value
+  return {
+    transform: `translate(${petX.value}px, ${petY.value}px) scale(${a.scale})`,
+    filter: `hue-rotate(${a.hueRotate}deg) brightness(${a.brightness}) saturate(${a.saturate}) contrast(${a.contrast})`,
+    opacity: a.opacity,
+  }
+})
 
 const petName = computed(() => ghost.value?.name || '桌宠')
 
@@ -493,6 +529,8 @@ onMounted(async () => {
       }
     } else if (section === 'answering') {
       answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
+    } else if (section === 'appearance') {
+      petAppearance.value = loadAppearance()
     }
   })
 
@@ -858,7 +896,7 @@ const transferParticles = computed(() => {
           :mood-config="moodConfig"
           :emoji="petEmoji"
           :css-class="petCssClass"
-          :style-override="{ transform: `translate(${petX}px, ${petY}px)` }"
+          :style-override="petStyleOverride"
           :renderer-type="rendererType"
           :sprite-config="spriteConfig"
           :lottie-config="lottieConfig"

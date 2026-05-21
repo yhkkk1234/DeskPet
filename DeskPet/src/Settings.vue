@@ -42,6 +42,15 @@ const renaming = ref(false)
 const personaText = ref('')
 const generatingPersona = ref(false)
 
+const appearance = ref({
+  hueRotate: 0,
+  brightness: 1,
+  saturate: 1,
+  contrast: 1,
+  opacity: 1,
+  scale: 1,
+})
+
 async function savePersona() {
   if (!ghost.value) return
   try {
@@ -113,6 +122,10 @@ async function loadLocalStorage() {
   answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
   weatherApiKey.value = localStorage.getItem('deskpet_weather_api_key') || ''
   weatherCity.value = localStorage.getItem('deskpet_weather_city') || ''
+  try {
+    const saved = localStorage.getItem('deskpet_appearance')
+    if (saved) appearance.value = { ...appearance.value, ...JSON.parse(saved) }
+  } catch {}
   await syncTTSToMain()
 }
 
@@ -209,6 +222,19 @@ async function saveWeatherConfig() {
   } catch (e: any) {
     showError('配置失败: ' + (e as string))
   }
+}
+
+async function saveAppearance() {
+  localStorage.setItem('deskpet_appearance', JSON.stringify(appearance.value))
+  await emit('settings-updated', { section: 'appearance' })
+  showSuccess('外观已更新')
+}
+
+function resetAppearance() {
+  appearance.value = { hueRotate: 0, brightness: 1, saturate: 1, contrast: 1, opacity: 1, scale: 1 }
+  localStorage.setItem('deskpet_appearance', JSON.stringify(appearance.value))
+  emit('settings-updated', { section: 'appearance' })
+  showSuccess('外观已重置')
 }
 
 function switchRenderer(type: RendererType) {
@@ -510,6 +536,47 @@ const diaryEntryText = computed(() => {
               <button @click="updateLottieSrc" class="btn-browse">浏览...</button>
             </div>
             <p class="field-hint">目录下应包含: idle.json / happy.json / content.json / curious.json / cold.json / distant.json / speaking.json / surprise.json</p>
+          </div>
+        </div>
+
+        <!-- Visual Appearance Filters -->
+        <div class="settings-section">
+          <div class="settings-section-title">🎨 外观定制</div>
+          <div class="appearance-grid">
+            <div class="appearance-row">
+              <span class="appearance-label">色调</span>
+              <input type="range" min="0" max="360" v-model.number="appearance.hueRotate" class="appearance-slider" />
+              <span class="appearance-value">{{ appearance.hueRotate }}°</span>
+            </div>
+            <div class="appearance-row">
+              <span class="appearance-label">亮度</span>
+              <input type="range" min="0.3" max="2" step="0.05" v-model.number="appearance.brightness" class="appearance-slider" />
+              <span class="appearance-value">{{ appearance.brightness.toFixed(2) }}</span>
+            </div>
+            <div class="appearance-row">
+              <span class="appearance-label">饱和度</span>
+              <input type="range" min="0" max="2" step="0.05" v-model.number="appearance.saturate" class="appearance-slider" />
+              <span class="appearance-value">{{ appearance.saturate.toFixed(2) }}</span>
+            </div>
+            <div class="appearance-row">
+              <span class="appearance-label">对比度</span>
+              <input type="range" min="0.3" max="2" step="0.05" v-model.number="appearance.contrast" class="appearance-slider" />
+              <span class="appearance-value">{{ appearance.contrast.toFixed(2) }}</span>
+            </div>
+            <div class="appearance-row">
+              <span class="appearance-label">透明度</span>
+              <input type="range" min="0.3" max="1" step="0.05" v-model.number="appearance.opacity" class="appearance-slider" />
+              <span class="appearance-value">{{ appearance.opacity.toFixed(2) }}</span>
+            </div>
+            <div class="appearance-row">
+              <span class="appearance-label">大小</span>
+              <input type="range" min="0.5" max="3" step="0.05" v-model.number="appearance.scale" class="appearance-slider" />
+              <span class="appearance-value">{{ appearance.scale.toFixed(2) }}x</span>
+            </div>
+          </div>
+          <div class="appearance-actions">
+            <button @click="saveAppearance" class="btn btn-primary">保存外观</button>
+            <button @click="resetAppearance" class="btn btn-secondary">重置</button>
           </div>
         </div>
 
@@ -1537,5 +1604,45 @@ const diaryEntryText = computed(() => {
 .btn-browse:hover {
   background: #e0e0e0;
   border-color: #ccc;
+}
+
+.appearance-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.appearance-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.appearance-label {
+  width: 52px;
+  font-size: 12px;
+  color: #555;
+  flex-shrink: 0;
+}
+
+.appearance-slider {
+  flex: 1;
+  accent-color: #7c5cbf;
+  cursor: pointer;
+}
+
+.appearance-value {
+  width: 48px;
+  text-align: right;
+  font-size: 11px;
+  color: #888;
+  font-variant-numeric: tabular-nums;
+}
+
+.appearance-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 </style>

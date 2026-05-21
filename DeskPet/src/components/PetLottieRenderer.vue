@@ -6,6 +6,7 @@ const props = defineProps<{
   animationState: string
   isFlipped: boolean
   configSrc: string
+  styleOverride?: Record<string, string>
 }>()
 
 const canvasRef = ref<HTMLDivElement | null>(null)
@@ -104,6 +105,7 @@ defineExpose({ loadMood })
     ref="canvasRef"
     class="pet-lottie-container"
     :class="{ 'pet-flipped': isFlipped }"
+    :style="styleOverride"
   />
 </template>
 

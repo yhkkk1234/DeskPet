@@ -50,6 +50,7 @@ const emit = defineEmits<{
       :animation-state="animationState"
       :is-flipped="isFlipped"
       :config-src="lottieConfig.src"
+      :style-override="styleOverride"
     />
     <div v-else class="pet-sprite-placeholder">
       <span class="placeholder-text">?</span>
