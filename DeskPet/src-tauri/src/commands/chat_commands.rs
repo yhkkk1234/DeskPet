@@ -5,7 +5,7 @@ use crate::core::ghost::Ghost;
 use crate::core::soul::emotional_event::{EmotionalEvent, EmotionalEventType};
 use crate::core::prompt::prompt_builder::{AnsweringMode, PromptBuilder};
 use crate::core::prompt::token_budget::TokenBudget;
-use crate::data::database::Database;
+use crate::data::database::{Database, DocumentKnowledgeRow};
 use crate::services::ai_service::{AIService, AIProviderConfig, ChatMessage};
 use crate::services::memory_service::MemoryService;
 use crate::core::memory::local_compressor;
@@ -666,6 +666,18 @@ fn build_system_prompt(ghost: &Ghost, state: &State<'_, AppState>, weather_conte
         prompt.push_str(w);
     }
 
+    if let Some(db) = state.db.lock().map_err(|e| e.to_string())?.as_ref() {
+        if let Ok(docs) = db.get_ready_documents() {
+            if !docs.is_empty() {
+                let doc_ctx = build_document_context(&docs);
+                if !doc_ctx.is_empty() {
+                    prompt.push_str("\n\n");
+                    prompt.push_str(&doc_ctx);
+                }
+            }
+        }
+    }
+
     Ok(prompt)
 }
 
@@ -676,6 +688,56 @@ fn truncate(s: &str, max_chars: usize) -> String {
     } else {
         format!("{}...", s.chars().take(max_chars).collect::<String>())
     }
+}
+
+fn build_document_context(docs: &[DocumentKnowledgeRow]) -> String {
+    let mut parts: Vec<String> = vec![];
+
+    for doc in docs {
+        if let Some(ref summary_json) = doc.summary_json {
+            if let Ok(summary) = serde_json::from_str::<serde_json::Value>(summary_json) {
+                let mut lines: Vec<String> = vec![];
+
+                if let Some(one_liner) = summary["one_liner"].as_str() {
+                    if !one_liner.is_empty() {
+                        lines.push(format!("- 概要：{}", one_liner));
+                    }
+                }
+
+                if let Some(characters) = summary["characters"].as_array() {
+                    if !characters.is_empty() {
+                        let chars_desc: Vec<String> = characters.iter().filter_map(|c| {
+                            let name = c["name"].as_str().unwrap_or("?");
+                            let role = c["role"].as_str().unwrap_or("");
+                            let label = if role.is_empty() { name.to_string() } else { format!("{}（{}）", name, role) };
+                            Some(label)
+                        }).collect();
+                        lines.push(format!("- 主要角色：{}", chars_desc.join("、")));
+                    }
+                }
+
+                if let Some(themes) = summary["themes"].as_array() {
+                    if !themes.is_empty() {
+                        let theme_strs: Vec<&str> = themes.iter().filter_map(|t| t.as_str()).collect();
+                        lines.push(format!("- 核心主题：{}", theme_strs.join("、")));
+                    }
+                }
+
+                if !lines.is_empty() {
+                    parts.push(format!("主人有一部作品《{}》：\n{}", doc.title, lines.join("\n")));
+                }
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "## 你了解的作品\n{}\n\n（注意：如果主人没有主动提起作品相关内容，不要突兀地评价这些作品。当主人聊到时，可以自然地结合你对作品的了解来回应。）",
+        parts.join("\n\n")
+    )
 }
 
 #[tauri::command]

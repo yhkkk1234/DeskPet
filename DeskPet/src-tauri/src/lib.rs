@@ -86,6 +86,11 @@ pub fn run() {
             commands::screenshot_commands::get_screenshot_data,
             commands::screenshot_commands::close_screenshot_window,
             commands::screenshot_commands::curiosity_background_analyze,
+            commands::document_commands::import_document,
+            commands::document_commands::get_document_list,
+            commands::document_commands::get_document_detail,
+            commands::document_commands::delete_document,
+            commands::document_commands::search_document_context,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

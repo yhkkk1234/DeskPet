@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
+import { open } from '@tauri-apps/plugin-dialog'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import BubbleMessage from './components/BubbleMessage.vue'
 
@@ -24,6 +25,9 @@ const pendingScreenShotBase64 = ref<string | null>(null)
 const tailDirection = ref<'left' | 'right'>('left')
 const ghostLoaded = ref(false)
 const error = ref('')
+const importingDoc = ref(false)
+const importingDocTitle = ref('')
+const dragOver = ref(false)
 
 const messageListRef = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLInputElement | null>(null)
@@ -243,6 +247,75 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+function handleDragOver(e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  dragOver.value = true
+}
+
+function handleDragLeave(e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  dragOver.value = false
+}
+
+function handleDrop(e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  dragOver.value = false
+}
+
+async function handleFileSelect() {
+  if (chatLoading.value || importingDoc.value) return
+  try {
+    const selected = await open({
+      filters: [{ name: '文档', extensions: ['txt', 'docx'] }],
+      multiple: false,
+    })
+    if (selected) {
+      const filePath = typeof selected === 'string' ? selected : selected.path
+      if (filePath) await doImport(filePath)
+    }
+  } catch (e: any) {
+    messages.value.push({ role: 'system', content: `文件选择失败: ${e}` })
+  }
+}
+
+async function doImport(filePath: string) {
+  const fileName = filePath.split(/[/\\]/).pop() || '未知文件'
+  const nameWithoutExt = fileName.replace(/\.[^.]+$/, '')
+  importingDocTitle.value = nameWithoutExt
+  importingDoc.value = true
+
+  messages.value.push({ role: 'system', content: `正在阅读《${nameWithoutExt}》……` })
+
+  try {
+    const result = await invoke<{
+      id: string
+      title: string
+      file_type: string
+      word_count: number
+      import_status: string
+    }>('import_document', { filePath })
+
+    if (result.import_status === 'ready') {
+      const wordCount = result.word_count
+      const displayWords = wordCount > 10000
+        ? `${(wordCount / 10000).toFixed(1)}万字`
+        : `${wordCount}字`
+      messages.value.push({ role: 'system', content: `《${result.title}》已加入，共${displayWords}。随时可以聊它！` })
+    } else if (result.import_status === 'error') {
+      messages.value.push({ role: 'system', content: `《${result.title}》导入失败，请重试` })
+    }
+  } catch (e: any) {
+    messages.value.push({ role: 'system', content: `文件导入失败: ${e}` })
+  } finally {
+    importingDoc.value = false
+    importingDocTitle.value = ''
+  }
+}
+
 function toggleAnsweringMode() {
   const newMode = answeringMode.value === 'Companion' ? 'Assistant' : 'Companion'
   answeringMode.value = newMode
@@ -337,7 +410,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="chat-app">
+  <div class="chat-app" @dragover="handleDragOver" @dragleave="handleDragLeave" @drop="handleDrop">
+    <!-- Drag overlay -->
+    <div v-if="dragOver" class="drag-overlay">
+      <span class="drag-icon">📄</span>
+      <span>松开以导入文档</span>
+    </div>
+
     <div class="chat-bubble" :class="'tail-' + tailDirection" :style="bubbleStyle">
       <!-- Header -->
       <div class="chat-header">
@@ -391,6 +470,12 @@ onUnmounted(() => {
         <button class="screenshot-banner-cancel" @click="cancelScreenshot">取消</button>
       </div>
 
+      <!-- Import status -->
+      <div v-if="importingDoc" class="import-banner">
+        <span class="import-icon">📖</span>
+        <span class="import-text">正在阅读《{{ importingDocTitle }}》……</span>
+      </div>
+
       <!-- Input area -->
       <div class="chat-input-area">
         <button
@@ -408,6 +493,9 @@ onUnmounted(() => {
           :placeholder="placeholderText"
           @keydown="handleKeydown"
         />
+        <button class="chat-file-btn" :disabled="chatLoading || importingDoc" @click="handleFileSelect" title="导入文档 (.txt/.docx)">
+          📎
+        </button>
         <button class="chat-send" :disabled="chatLoading || (!inputValue.trim() && !allowEmptySend)" @click="handleSend">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M2 8L14 2L10 8L14 14L2 8Z" fill="currentColor" stroke="currentColor" stroke-width="0.5" stroke-linejoin="round"/>
@@ -815,5 +903,81 @@ onUnmounted(() => {
 
 @keyframes cursorBlink {
   50% { opacity: 0; }
+}
+
+.chat-file-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 36px;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  background: #fafafa;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.chat-file-btn:hover:not(:disabled) {
+  border-color: #c084fc;
+  background: #faf5ff;
+  transform: scale(1.1);
+}
+
+.chat-file-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(192, 132, 252, 0.12);
+  border: 3px dashed #c084fc;
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 100;
+  font-size: 15px;
+  color: #7c3aed;
+  font-weight: 600;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.drag-icon {
+  font-size: 36px;
+}
+
+.import-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(192, 132, 252, 0.08);
+  border-top: 1px solid rgba(192, 132, 252, 0.2);
+  flex-shrink: 0;
+}
+
+.import-icon {
+  font-size: 14px;
+  animation: importPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes importPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.import-text {
+  font-size: 12px;
+  color: #7c3aed;
+  font-weight: 500;
 }
 </style>

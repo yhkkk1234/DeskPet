@@ -49,6 +49,12 @@ impl Database {
             .execute_batch(migration_sql5)
             .map_err(|e| format!("Migration 005 failed: {}", e))?;
 
+        // 运行 006_add_document_knowledge.sql
+        let migration_sql6 = include_str!("../../migrations/006_add_document_knowledge.sql");
+        self.conn
+            .execute_batch(migration_sql6)
+            .map_err(|e| format!("Migration 006 failed: {}", e))?;
+
         Ok(())
     }
 
@@ -694,6 +700,139 @@ impl Database {
 
         Ok(rows)
     }
+
+    pub fn save_document(
+        &self,
+        id: &str,
+        title: &str,
+        file_path: &str,
+        file_type: &str,
+        word_count: u32,
+        full_text: &str,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO DocumentKnowledge (Id, Title, FilePath, FileType, WordCount, FullText, ImportStatus, CreatedAt, UpdatedAt)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', datetime('now'), datetime('now'))",
+                params![id, title, file_path, file_type, word_count, full_text],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn update_document_summary(&self, id: &str, summary_json: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE DocumentKnowledge SET SummaryJson = ?1, ImportStatus = 'ready', UpdatedAt = datetime('now') WHERE Id = ?2",
+                params![summary_json, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn update_document_status(&self, id: &str, status: &str, error: Option<&str>) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE DocumentKnowledge SET ImportStatus = ?1, ErrorMessage = ?2, UpdatedAt = datetime('now') WHERE Id = ?3",
+                params![status, error, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_document_list(&self) -> Result<Vec<DocumentKnowledgeRow>, String> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT Id, Title, FilePath, FileType, WordCount, ImportStatus, ErrorMessage, CreatedAt, UpdatedAt
+                 FROM DocumentKnowledge ORDER BY CreatedAt DESC",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![], |row| {
+                Ok(DocumentKnowledgeRow {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    file_path: row.get(2)?,
+                    file_type: row.get(3)?,
+                    word_count: row.get(4)?,
+                    import_status: row.get(5)?,
+                    error_message: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    summary_json: None,
+                    full_text: None,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        Ok(rows)
+    }
+
+    pub fn get_document_by_id(&self, id: &str) -> Result<DocumentKnowledgeRow, String> {
+        self.conn
+            .query_row(
+                "SELECT Id, Title, FilePath, FileType, WordCount, SummaryJson, FullText, ImportStatus, ErrorMessage, CreatedAt, UpdatedAt
+                 FROM DocumentKnowledge WHERE Id = ?1",
+                params![id],
+                |row| {
+                    Ok(DocumentKnowledgeRow {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        file_path: row.get(2)?,
+                        file_type: row.get(3)?,
+                        word_count: row.get(4)?,
+                        summary_json: row.get(5)?,
+                        full_text: row.get(6)?,
+                        import_status: row.get(7)?,
+                        error_message: row.get(8)?,
+                        created_at: row.get(9)?,
+                        updated_at: row.get(10)?,
+                    })
+                },
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn get_ready_documents(&self) -> Result<Vec<DocumentKnowledgeRow>, String> {
+        let mut stmt = self.conn
+            .prepare(
+                "SELECT Id, Title, FilePath, FileType, WordCount, SummaryJson, FullText, ImportStatus, ErrorMessage, CreatedAt, UpdatedAt
+                 FROM DocumentKnowledge WHERE ImportStatus = 'ready' AND SummaryJson != '' ORDER BY CreatedAt DESC",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(params![], |row| {
+                Ok(DocumentKnowledgeRow {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    file_path: row.get(2)?,
+                    file_type: row.get(3)?,
+                    word_count: row.get(4)?,
+                    summary_json: row.get(5)?,
+                    full_text: row.get(6)?,
+                    import_status: row.get(7)?,
+                    error_message: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        Ok(rows)
+    }
+
+    pub fn delete_document(&self, id: &str) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM DocumentKnowledge WHERE Id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -802,4 +941,19 @@ pub struct DiaryRow {
     pub summary: String,
     pub entry_date: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DocumentKnowledgeRow {
+    pub id: String,
+    pub title: String,
+    pub file_path: String,
+    pub file_type: String,
+    pub word_count: i64,
+    pub summary_json: Option<String>,
+    pub full_text: Option<String>,
+    pub import_status: String,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
