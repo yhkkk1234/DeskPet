@@ -12,6 +12,15 @@ pub async fn import_document(
 ) -> Result<DocumentKnowledgeRow, String> {
     let extracted = extract_service::extract_text(&file_path)?;
 
+    // 先校验 AI 配置：未配置则直接报错，避免把 full_text 写入数据库后
+    // 因摘要失败而留下一条永远卡在 'summarizing' 的僵尸记录。
+    let ai_config = {
+        let locked = state.ai_config.lock().map_err(|e| e.to_string())?;
+        locked.as_ref()
+            .ok_or("AI 接口未配置，请先在设置中配置 AI 接口后再导入文档")?
+            .clone()
+    };
+
     let id = uuid::Uuid::new_v4().to_string();
 
     {
@@ -25,13 +34,7 @@ pub async fn import_document(
             extracted.word_count,
             &extracted.full_text,
         )?;
-        db.update_document_status(&id, "summarizing", None)?;
     }
-
-    let ai_config = {
-        let locked = state.ai_config.lock().map_err(|e| e.to_string())?;
-        locked.as_ref().ok_or("AI 接口未配置")?.clone()
-    };
 
     let summary_result = summarize_service::generate_summary(
         &ai_config,

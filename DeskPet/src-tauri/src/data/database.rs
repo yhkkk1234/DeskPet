@@ -713,7 +713,7 @@ impl Database {
         self.conn
             .execute(
                 "INSERT OR REPLACE INTO DocumentKnowledge (Id, Title, FilePath, FileType, WordCount, FullText, ImportStatus, CreatedAt, UpdatedAt)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', datetime('now'), datetime('now'))",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'summarizing', datetime('now'), datetime('now'))",
                 params![id, title, file_path, file_type, word_count, full_text],
             )
             .map_err(|e| e.to_string())?;

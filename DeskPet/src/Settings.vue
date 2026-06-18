@@ -109,6 +109,7 @@ async function loadLocalStorage() {
   spriteJsonSrc.value = localStorage.getItem('deskpet_sprite_json_src') || '/pet/pet_spritesheet.json'
   lottieSrc.value = localStorage.getItem('deskpet_lottie_src') || '/pet/lottie/'
   aiEndpoint.value = localStorage.getItem('deskpet_ai_endpoint') || 'https://api.deepseek.com/v1'
+  aiApiKey.value = localStorage.getItem('deskpet_ai_api_key') || ''
   aiModel.value = localStorage.getItem('deskpet_ai_model') || 'deepseek-chat'
   aiVisionModel.value = localStorage.getItem('deskpet_ai_vision_model') || ''
   aiImageModel.value = localStorage.getItem('deskpet_ai_image_model') || ''
@@ -198,6 +199,7 @@ async function saveAIConfig() {
       imageGenApiKey: aiImageGenApiKey.value.trim() || null,
     })
     localStorage.setItem('deskpet_ai_endpoint', aiEndpoint.value.trim())
+    localStorage.setItem('deskpet_ai_api_key', aiApiKey.value.trim())
     localStorage.setItem('deskpet_ai_model', aiModel.value.trim())
     localStorage.setItem('deskpet_ai_vision_model', aiVisionModel.value.trim())
     localStorage.setItem('deskpet_ai_image_model', aiImageModel.value.trim())

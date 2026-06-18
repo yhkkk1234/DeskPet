@@ -17,11 +17,26 @@ pub struct CharacterInfo {
     pub traits: String,
 }
 
+/// 送给 AI 摘要的最大字符数。超过此长度的文档会被截断，
+/// 避免一次性打爆 token 上限或触发 API 的输入长度限制。
+const MAX_SUMMARY_CHARS: usize = 50000;
+
 pub async fn generate_summary(
     ai_config: &AIProviderConfig,
     title: &str,
     full_text: &str,
 ) -> Result<String, String> {
+    // 超长文档真正截断，而不是只加标注仍把全文发出去。
+    let (body, truncated_note) = if full_text.chars().count() > MAX_SUMMARY_CHARS {
+        let head: String = full_text.chars().take(MAX_SUMMARY_CHARS).collect();
+        (
+            head,
+            format!("（注意：原文过长，已截取前{}字，可能丢失后文内容）\n\n", MAX_SUMMARY_CHARS),
+        )
+    } else {
+        (full_text.to_string(), String::new())
+    };
+
     let system_prompt = format!(
         r#"你是一个文学分析助手。请阅读以下作品全文，生成一份结构化的摘要。
 
@@ -47,12 +62,8 @@ pub async fn generate_summary(
         ChatMessage {
             role: "user".to_string(),
             content: format!(
-                "请分析以下作品的全文内容，并返回结构化的摘要JSON：\n\n{}\n\n---\n请只返回JSON，不要其他内容。",
-                if full_text.chars().count() > 50000 {
-                    format!("（以下为原文，共{}字）\n{}", crate::services::extract_service::count_chinese_words(full_text), full_text)
-                } else {
-                    full_text.to_string()
-                }
+                "请分析以下作品的全文内容，并返回结构化的摘要JSON：\n\n{}{}\n\n---\n请只返回JSON，不要其他内容。",
+                truncated_note, body
             ),
         },
     ];
