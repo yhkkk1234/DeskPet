@@ -21,6 +21,17 @@ pub struct CharacterInfo {
 /// 避免一次性打爆 token 上限或触发 API 的输入长度限制。
 const MAX_SUMMARY_CHARS: usize = 50000;
 
+// 架构备忘（未来重构方向，当前不必处理）：
+// 现在的超长文档是「单次截断前 N 字」，会丢失后文细节。
+// 更成熟的方案是「分块摘要 + 检索回查」双层架构：
+//   1. 导入时把全文切块，每块各自 AI 摘要，再合并出全局摘要（省 token、不爆窗口）
+//   2. 全文始终保留在 DocumentKnowledge.FullText
+//   3. 用户聊到具体细节时，用 search_document_context 从全文检索相关片段，
+//      临时补进本次对话 prompt —— 这一段是无损的，能回答分块摘要丢掉的细节
+// 关键判断：光做分块压缩会丢细节，必须配「按需检索全文」兜底才有意义。
+// 本项目已埋好地基（FullText 存储 + search_document_context 命令），
+// 缺的只是分块摘要逻辑 + 前端接通检索入口。
+
 pub async fn generate_summary(
     ai_config: &AIProviderConfig,
     title: &str,

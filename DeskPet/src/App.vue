@@ -501,6 +501,11 @@ onMounted(async () => {
         imageGenEndpoint: localStorage.getItem('deskpet_ai_image_gen_endpoint') || null,
         imageGenApiKey: localStorage.getItem('deskpet_ai_image_gen_api_key') || null,
       })
+    } else {
+      // 首次启动或未配置：引导用户去设置 AI 接口。
+      // 没有可用 AI 配置时，桌宠能动能展示但无法对话/情感/记忆——这是最大的新手流失点。
+      // 延迟一点再弹，避免与初始化的 ghost 生成/窗口定位抢焦点。
+      setTimeout(() => { openSettingsWindow() }, 1200)
     }
   } catch (e) {
     console.warn('还原 AI 配置失败:', e)
@@ -869,21 +874,35 @@ function startTransfer() {
 }
 
 async function executeTransfer() {
+  // 传送本身：只有这一步失败才算"传送失败"
+  let result: TransferResult
   try {
-    const result = await invoke<TransferResult>('transfer_ghost', {
+    result = await invoke<TransferResult>('transfer_ghost', {
       savePath: getGhostSavePath(),
     })
-    transferResult.value = result
-    transferPhase.value = 'revealing'
-
-    if (ghost.value) {
-      ghost.value = JSON.parse(await invoke<string>('get_ghost_status'))
-    }
-    checkAndNotifyAchievements()
   } catch (e: any) {
     error.value = `灵魂传送失败: ${e}`
     transferPhase.value = 'idle'
     showTransfer.value = false
+    return
+  }
+
+  // 传送已成功落盘。后续读取状态/成就即使失败也不再回退相位，
+  // 否则会误报"传送失败"而实际新灵魂已经写入磁盘和内存。
+  transferResult.value = result
+  transferPhase.value = 'revealing'
+
+  try {
+    if (ghost.value) {
+      ghost.value = JSON.parse(await invoke<string>('get_ghost_status'))
+    }
+  } catch (e) {
+    console.warn('传送后读取 ghost 状态失败（不影响传送结果）:', e)
+  }
+  try {
+    checkAndNotifyAchievements()
+  } catch (e) {
+    console.warn('传送后检查成就失败（不影响传送结果）:', e)
   }
 }
 

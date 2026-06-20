@@ -180,18 +180,21 @@ pub async fn transfer_ghost(
 ) -> Result<serde_json::Value, String> {
     let (transferred, _old_personality, old_signature, old_generation, ghost_id, generation, perturbation) = {
         let mut rng = thread_rng();
-        let mut locked = state.ghost.lock().map_err(|e| e.to_string())?;
-        let ghost = locked.as_mut().ok_or("No ghost loaded")?;
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        let ghost = locked.as_ref().ok_or("No ghost loaded")?;
 
         let old_personality = ghost.soul.innate_tendency.self_dims.clone();
         let old_signature = ghost.soul_signature.clone();
         let old_generation = ghost.generation;
         let ghost_id = ghost.ghost_id.clone();
 
-        let transferred = ghost.transfer(&mut rng);
+        // 关键：对原体的 clone 做 transfer，保持内存中的原体不被污染。
+        // 这样落盘失败时内存仍是旧灵魂，状态一致；落盘成功后再在下方替换内存。
+        let mut transferred = ghost.clone();
+        transferred.transfer(&mut rng);
 
-        let new_personality = ghost.soul.innate_tendency.self_dims.clone();
-        let generation = ghost.generation;
+        let new_personality = transferred.soul.innate_tendency.self_dims.clone();
+        let generation = transferred.generation;
         let perturbation: serde_json::Value = serde_json::json!({
             "openness": new_personality.openness - old_personality.openness,
             "conscientiousness": new_personality.conscientiousness - old_personality.conscientiousness,
@@ -270,6 +273,13 @@ pub async fn transfer_ghost(
     let path = std::path::Path::new(&save_path);
     GhostFileManager::save_encrypted_with_auto_key(&transferred, path)
         .map_err(|e| format!("Failed to save transferred ghost: {}", e))?;
+
+    // 落盘成功后，才把内存中的原体替换为新灵魂。
+    // 若落盘失败，上面已 return Err，内存保持旧灵魂，状态一致。
+    {
+        let mut locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        *locked = Some(transferred.clone());
+    }
 
     Ok(serde_json::json!({
         "oldSignature": old_signature,

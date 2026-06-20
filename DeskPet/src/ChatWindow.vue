@@ -195,6 +195,22 @@ function speak(text: string) {
   }
 }
 
+// 把后端返回的技术性错误翻译成对用户友好的简短提示，
+// 并去掉暴露的 URL/状态码细节。
+function friendlyError(raw: string): string {
+  const s = String(raw)
+  if (s.includes('API Key 为空')) return '我还没办法说话——请先在设置里配置 AI 接口（API Key）'
+  if (s.includes('[401]') || /api key|unauthor/i.test(s)) return 'AI 密钥错误或已失效，请检查设置中的 API Key'
+  if (s.includes('[403]')) return 'AI 接口拒绝访问，请确认密钥权限或账户状态'
+  if (s.includes('[429]')) return 'AI 调用过于频繁或额度不足，请稍后再试'
+  if (/\[5\d\d\]/.test(s)) return 'AI 服务暂时不可用，请稍后再试'
+  if (s.includes('网络请求失败') || s.includes('流式请求失败') || /network|timeout|connect/i.test(s)) return '网络连接失败，请检查网络后重试'
+  if (s.includes('AI 接口未配置')) return '我还没办法说话——请先在设置里配置 AI 接口'
+  // 兜底：去掉 URL 部分，截断过长的原始响应
+  const cleaned = s.replace(/\(URL: [^)]+\)/g, '').replace(/\\n原始响应:[\s\S]*/g, '')
+  return cleaned.length > 80 ? cleaned.slice(0, 80) + '…' : cleaned
+}
+
 function handleSend() {
   if (chatLoading.value) return
   const msg = inputValue.value.trim()
@@ -214,7 +230,7 @@ function handleSend() {
   responseComplete.value = false
 
   invoke('chat_with_pet', { message: msg }).catch((e: any) => {
-    messages.value.push({ role: 'system', content: `发送失败: ${e}` })
+    messages.value.push({ role: 'system', content: friendlyError(e) })
     chatLoading.value = false
     responseComplete.value = false
   })
@@ -230,7 +246,7 @@ async function executeScreenShotAnalysis(base64: string, question: string) {
     messages.value.push({ role: 'pet', content: result.description })
     speak(result.description)
   } catch (e: any) {
-    messages.value.push({ role: 'system', content: `截图识别失败: ${e}` })
+    messages.value.push({ role: 'system', content: `截图识别失败：${friendlyError(e)}` })
   } finally {
     chatLoading.value = false
   }
@@ -309,7 +325,7 @@ async function doImport(filePath: string) {
       messages.value.push({ role: 'system', content: `《${result.title}》导入失败，请重试` })
     }
   } catch (e: any) {
-    messages.value.push({ role: 'system', content: `文件导入失败: ${e}` })
+    messages.value.push({ role: 'system', content: `文件导入失败：${friendlyError(e)}` })
   } finally {
     importingDoc.value = false
     importingDocTitle.value = ''
