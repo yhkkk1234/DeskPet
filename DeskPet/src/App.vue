@@ -401,6 +401,9 @@ let requestTransferUnlisten: (() => void) | null = null
 let screenshotCapturedUnlisten: (() => void) | null = null
 let screenshotCancelledUnlisten: (() => void) | null = null
 let transferAnimInterval: ReturnType<typeof setInterval> | null = null
+// 防止 openChatWindow 重入：getByLabel 与 new WebviewWindow 非原子，
+// 连按热键/双击宠物/热键+点击叠加时会双触发，产生"一个能用一个僵尸"的双窗口。
+let chatOpening = false
 
 async function loadSpriteJson() {
   try {
@@ -700,38 +703,53 @@ function handlePetClick(e: MouseEvent) {
 }
 
 async function openChatWindow() {
-  if (asleep.value) {
-    await wakeUpPet()
-  }
-  let chatWin = await WebviewWindow.getByLabel('chat')
-  if (!chatWin) {
-    chatWin = new WebviewWindow('chat', {
-      url: 'chat.html',
-      title: 'DeskPet - 对话',
-      width: 360,
-      height: 500,
-      minWidth: 300,
-      minHeight: 300,
-      resizable: true,
-      transparent: true,
-      decorations: false,
-      alwaysOnTop: true,
-      skipTaskbar: false,
-      visible: true,
-    })
-    await new Promise(resolve => setTimeout(resolve, 200))
-    try {
-      await chatWin.setShadow(false)
-    } catch (e) {
-      console.warn('Failed to disable shadow:', e)
+  // 重入保护：连按热键/双击宠物等并发触发时，第二次直接返回，
+  // 避免两次 getByLabel 都返回 null 导致 new WebviewWindow 两次产生僵尸窗口。
+  if (chatOpening) return
+  chatOpening = true
+  try {
+    if (asleep.value) {
+      await wakeUpPet()
     }
-  }
-  const visible = await chatWin.isVisible()
-  if (visible) {
-    await chatWin.setFocus()
-  } else {
-    await chatWin.show()
-    await chatWin.setFocus()
+    let chatWin = await WebviewWindow.getByLabel('chat')
+    if (!chatWin) {
+      chatWin = new WebviewWindow('chat', {
+        url: 'chat.html',
+        title: 'DeskPet - 对话',
+        width: 360,
+        height: 500,
+        minWidth: 300,
+        minHeight: 300,
+        resizable: true,
+        transparent: true,
+        decorations: false,
+        alwaysOnTop: true,
+        skipTaskbar: false,
+        visible: true,
+      })
+      // 兜底：若 label 冲突（理论上已被 chatOpening 拦住，此处为双保险）
+      // 导致 Rust 侧创建失败，捕获 tauri://error 并清理可能已显示的僵尸窗口。
+      chatWin.once('tauri://error', (e: any) => {
+        console.error('Chat window creation error:', e)
+        pushSystemMessage(`对话窗口创建失败: ${e?.payload || e}`)
+        chatWin.close().catch(() => {})
+      })
+      await new Promise(resolve => setTimeout(resolve, 200))
+      try {
+        await chatWin.setShadow(false)
+      } catch (e) {
+        console.warn('Failed to disable shadow:', e)
+      }
+    }
+    const visible = await chatWin.isVisible()
+    if (visible) {
+      await chatWin.setFocus()
+    } else {
+      await chatWin.show()
+      await chatWin.setFocus()
+    }
+  } finally {
+    chatOpening = false
   }
 }
 
