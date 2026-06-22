@@ -952,6 +952,12 @@ const transferParticles = computed(() => {
 
 <template>
   <div class="pet-app">
+    <!-- Error banner: 灵魂生成/加载失败时显示，原 bug 为此状态完全不渲染 -->
+    <div v-if="error" class="pet-error">
+      <span class="pet-error-text">{{ error }}</span>
+      <button class="pet-error-dismiss" @click="error = ''">✕</button>
+    </div>
+
     <!-- Pet column: fixed-width container so pet doesn't shift on window resize -->
     <div class="pet-column" @mouseenter="onHover(true)" @mouseleave="onHover(false)">
       <div class="pet-area" @click="handlePetClick" @mousedown.prevent="onPetMouseDown">
@@ -1105,6 +1111,42 @@ const transferParticles = computed(() => {
   user-select: none;
 }
 
+/* Error banner — 主界面唯一可见的错误反馈 */
+.pet-error {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  background: rgba(244, 67, 54, 0.92);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  animation: fadeIn 0.25s ease;
+}
+.pet-error-text {
+  flex: 1;
+  word-break: break-word;
+}
+.pet-error-dismiss {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: white;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Pet Column */
 .pet-column {
   position: relative;
@@ -1122,10 +1164,6 @@ const transferParticles = computed(() => {
 }
 
 /* Bubble dialogue */
-.bubble-dialogue-wrapper {
-  margin: 0 4px 4px;
-}
-
 /* Hover toolbar */
 .hover-toolbar {
   position: absolute;

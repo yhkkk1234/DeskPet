@@ -1029,9 +1029,10 @@ const diaryEntryText = computed(() => {
   padding: 4px 10px;
   border-radius: 8px;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   color: white;
   background: linear-gradient(135deg, #ff6b9d, #c084fc);
+  flex: 1;
 }
 
 .btn-ren-off {
@@ -1105,7 +1106,7 @@ const diaryEntryText = computed(() => {
   padding: 4px 10px;
   border-radius: 8px;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   flex: 1;
   color: white;
   background: #4caf50;
@@ -1138,11 +1139,6 @@ const diaryEntryText = computed(() => {
   padding: 6px 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.save-load-buttons {
-  display: flex;
   gap: 6px;
 }
 

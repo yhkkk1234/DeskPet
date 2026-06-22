@@ -762,6 +762,18 @@ onUnmounted(() => {
   transform: scale(1.1);
 }
 
+.mode-toggle.mode-companion {
+  border-color: rgba(255, 152, 0, 0.5);
+  background: rgba(255, 152, 0, 0.08);
+  color: #e65100;
+}
+
+.mode-toggle.mode-assistant {
+  border-color: rgba(33, 150, 243, 0.4);
+  background: rgba(33, 150, 243, 0.06);
+  color: #1565c0;
+}
+
 .chat-input {
   flex: 1;
   padding: 7px 12px;
@@ -888,12 +900,6 @@ onUnmounted(() => {
   font-size: 14px;
   letter-spacing: 3px;
   color: #ff6b9d;
-  animation: typingPulse 1s ease-in-out infinite;
-}
-
-@keyframes typingPulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
 }
 
 .bubble-streaming {
