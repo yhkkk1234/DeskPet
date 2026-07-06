@@ -238,10 +238,23 @@ watch(() => props.config.src, () => {
 
 const canvasWidth = computed(() => props.config.frameWidth * props.config.scale)
 const canvasHeight = computed(() => props.config.frameHeight * props.config.scale)
+
+// wrapper 显示尺寸：跟随 canvas 尺寸，但限制在窗口余量内（400px 窗口留 20px 边距）。
+// 大图（如 500×500）自动缩到 380px 显示，不超出窗口；小图（128×128）不受限。
+const MAX_DISPLAY = 380
+const wrapperStyle = computed(() => {
+  const w = Math.min(canvasWidth.value, MAX_DISPLAY)
+  const h = Math.min(canvasHeight.value, MAX_DISPLAY)
+  return {
+    ...props.styleOverride,
+    width: w + 'px',
+    height: h + 'px',
+  }
+})
 </script>
 
 <template>
-  <div class="pet-sprite-canvas-wrapper" :style="styleOverride">
+  <div class="pet-sprite-canvas-wrapper" :style="wrapperStyle">
     <canvas
       v-if="imageLoaded"
       ref="canvas"
@@ -255,12 +268,11 @@ const canvasHeight = computed(() => props.config.frameHeight * props.config.scal
 
 <style scoped>
 .pet-sprite-canvas-wrapper {
-  width: 128px;
-  height: 128px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .pet-sprite-canvas {
@@ -268,11 +280,12 @@ const canvasHeight = computed(() => props.config.frameHeight * props.config.scal
   image-rendering: crisp-edges;
   max-width: 100%;
   max-height: 100%;
+  object-fit: contain;
 }
 
 .pet-sprite-placeholder {
-  width: 128px;
-  height: 128px;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -122,6 +122,17 @@ export function usePetRenderer() {
       })
     }
 
+    // 自动从第一帧提取帧尺寸，支持自设大小的精灵图（如 500×500）。
+    // JSON 读取失败时保留默认 128 兜底。
+    if (frames.length > 0) {
+      const firstFrame = frames[0]
+      const fw = firstFrame.frame.w
+      const fh = firstFrame.frame.h
+      if (fw > 0 && fh > 0 && (fw !== spriteConfig.value.frameWidth || fh !== spriteConfig.value.frameHeight)) {
+        setSpriteConfig({ frameWidth: fw, frameHeight: fh })
+      }
+    }
+
     tagRanges.value = ranges
     frameDurations.value = durations
     framePositions.value = positions

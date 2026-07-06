@@ -30,6 +30,8 @@ import { computed } from 'vue'
 .pet-sprite-css {
   width: 128px;
   height: 128px;
+  max-width: 380px;
+  max-height: 380px;
   display: flex;
   align-items: center;
   justify-content: center;

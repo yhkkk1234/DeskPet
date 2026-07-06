@@ -113,6 +113,8 @@ defineExpose({ loadMood })
 .pet-lottie-container {
   width: 128px;
   height: 128px;
+  max-width: 380px;
+  max-height: 380px;
 }
 
 .pet-flipped {
