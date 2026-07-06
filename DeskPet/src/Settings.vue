@@ -188,6 +188,19 @@ async function clearHistory() {
   }
 }
 
+async function repairHistoryOrder() {
+  try {
+    const count = await invoke<number>('repair_chat_history_order')
+    if (count > 0) {
+      showSuccess(`已修复 ${count} 条消息的顺序，重新打开对话窗口即可生效`)
+    } else {
+      showSuccess('历史消息顺序正常，无需修复')
+    }
+  } catch (e: any) {
+    showError('修复失败: ' + (e as string))
+  }
+}
+
 async function saveAIConfig() {
   if (!aiEndpoint.value.trim()) { showError('请填写 API Endpoint'); return }
   if (!aiApiKey.value.trim()) { showError('请填写 API Key'); return }
@@ -750,6 +763,8 @@ const diaryEntryText = computed(() => {
         <div v-if="ghost" class="settings-section">
           <div class="settings-section-title">💬 聊天记录</div>
           <div class="history-panel">
+            <button @click="repairHistoryOrder" class="btn btn-secondary">修复历史消息顺序</button>
+            <p class="history-hint">修复旧版本因时间戳精度不足导致的对话顺序颠倒（同一轮内"我"和"桌宠"对调）。修复后重新打开对话窗口生效。</p>
             <button @click="clearHistory" class="btn btn-danger">清除所有聊天记录</button>
             <p class="history-hint">清除后无法恢复，但不会影响记忆系统。</p>
           </div>
@@ -1291,7 +1306,7 @@ const diaryEntryText = computed(() => {
 .history-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .history-hint {

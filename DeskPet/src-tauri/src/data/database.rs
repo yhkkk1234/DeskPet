@@ -429,13 +429,126 @@ impl Database {
         role: &str,
         content: &str,
     ) -> Result<(), String> {
-        self.conn
-            .execute(
-                "INSERT INTO ChatMessages (Id, GhostId, Role, Content, CreatedAt) VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-                params![id, ghost_id, role, content],
-            )
-            .map_err(|e| e.to_string())?;
+        self.save_chat_message_with_ts(id, ghost_id, role, content, None)
+    }
+
+    pub fn save_chat_message_with_ts(
+        &self,
+        id: &str,
+        ghost_id: &str,
+        role: &str,
+        content: &str,
+        created_at: Option<&str>,
+    ) -> Result<(), String> {
+        match created_at {
+            Some(ts) => {
+                self.conn
+                    .execute(
+                        "INSERT INTO ChatMessages (Id, GhostId, Role, Content, CreatedAt) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![id, ghost_id, role, content, ts],
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
+            None => {
+                self.conn
+                    .execute(
+                        "INSERT INTO ChatMessages (Id, GhostId, Role, Content, CreatedAt) VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                        params![id, ghost_id, role, content],
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         Ok(())
+    }
+
+    /// 修复历史聊天消息的排序问题。
+    ///
+    /// 旧版本用 `datetime('now')`（秒精度）生成 CreatedAt，导致同一秒内保存的
+    /// user/assistant 消息时间戳相同，`ORDER BY CreatedAt` 排序不稳定，
+    /// 重启后加载历史时 user/assistant 顺序可能颠倒。
+    ///
+    /// 本方法按 CreatedAt 分组，同一秒内的消息按 role 优先级（user < assistant < system）
+    /// 重新排序，并分配递增的毫秒偏移时间戳（.000/.001/.002...），确保排序稳定。
+    /// 跨秒的消息天然有序，不受影响。
+    ///
+    /// 返回被修复的消息数量。
+    pub fn repair_chat_history_order(&mut self) -> Result<usize, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT Id, GhostId, Role, Content, CreatedAt FROM ChatMessages ORDER BY CreatedAt ASC, Id ASC")
+            .map_err(|e| e.to_string())?;
+
+        let rows: Vec<ChatMessageRow> = stmt
+            .query_map([], |row| {
+                Ok(ChatMessageRow {
+                    id: row.get(0)?,
+                    ghost_id: row.get(1)?,
+                    role: row.get(2)?,
+                    content: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        drop(stmt);
+
+        if rows.is_empty() {
+            return Ok(0);
+        }
+
+        fn role_priority(role: &str) -> i32 {
+            match role {
+                "user" => 0,
+                "assistant" => 1,
+                "system" => 2,
+                _ => 3,
+            }
+        }
+
+        fn is_low_precision(ts: &str) -> bool {
+            !ts.contains('.')
+        }
+
+        let mut repaired: usize = 0;
+        let tx = self.conn.transaction().map_err(|e| e.to_string())?;
+
+        let mut i = 0;
+        while i < rows.len() {
+            if !is_low_precision(&rows[i].created_at) {
+                i += 1;
+                continue;
+            }
+
+            let mut j = i;
+            while j + 1 < rows.len()
+                && is_low_precision(&rows[j + 1].created_at)
+                && rows[j + 1].created_at == rows[i].created_at
+            {
+                j += 1;
+            }
+
+            if j > i {
+                let mut group: Vec<&ChatMessageRow> = rows[i..=j].iter().collect();
+                group.sort_by_key(|r| role_priority(&r.role));
+
+                for (k, msg) in group.iter().enumerate() {
+                    let new_ts = format!("{}.{}", msg.created_at.trim_end_matches(' '), k);
+                    tx.execute(
+                        "UPDATE ChatMessages SET CreatedAt = ?1 WHERE Id = ?2",
+                        params![new_ts, msg.id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                    repaired += 1;
+                }
+            }
+
+            i = j + 1;
+        }
+
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(repaired)
     }
 
     pub fn load_chat_history(

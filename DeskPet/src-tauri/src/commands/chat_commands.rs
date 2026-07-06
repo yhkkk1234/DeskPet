@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, State};
 
 use crate::core::ghost::Ghost;
@@ -121,15 +122,23 @@ pub async fn chat_with_pet(
     };
 
     // 保存用户消息和 AI 回复到 ChatMessages，确保对话上下文完整持久化
+    // 用毫秒精度时间戳避免同秒内 user/pet 排序不稳定
     {
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let user_ts = format_ms_iso8601(now_ms);
+            let pet_ts = format_ms_iso8601(now_ms + 1);
+
             let user_msg_id = uuid::Uuid::new_v4().to_string();
-            if let Err(e) = db.save_chat_message(&user_msg_id, &ghost.ghost_id, "user", &message) {
+            if let Err(e) = db.save_chat_message_with_ts(&user_msg_id, &ghost.ghost_id, "user", &message, Some(&user_ts)) {
                 eprintln!("[chat] 保存用户消息失败: {}", e);
             }
             let pet_msg_id = uuid::Uuid::new_v4().to_string();
-            if let Err(e) = db.save_chat_message(&pet_msg_id, &ghost.ghost_id, "assistant", &response) {
+            if let Err(e) = db.save_chat_message_with_ts(&pet_msg_id, &ghost.ghost_id, "assistant", &response, Some(&pet_ts)) {
                 eprintln!("[chat] 保存AI回复失败: {}", e);
             }
         }
@@ -853,6 +862,15 @@ pub fn load_chat_history(
 }
 
 #[tauri::command]
+pub fn repair_chat_history_order(
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let mut db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_mut().ok_or("数据库未初始化")?;
+    db.repair_chat_history_order()
+}
+
+#[tauri::command]
 pub fn clear_chat_history(
     ghost_id: String,
     state: State<'_, AppState>,
@@ -1078,4 +1096,36 @@ pub fn get_achievements(state: State<'_, AppState>) -> Result<serde_json::Value,
         "achievements": achievements,
         "total": achievements.len(),
     }))
+}
+
+/// 将毫秒级 Unix 时间戳格式化为带毫秒的 ISO8601 字符串（UTC），如 "2026-07-06 12:34:56.789"
+/// 用于 ChatMessages.CreatedAt，确保同秒内的消息可按毫秒精确排序。
+fn format_ms_iso8601(ms: i64) -> String {
+    let secs = ms / 1000;
+    let millis = ms % 1000;
+    let days = secs / 86400;
+    let rem_secs = secs % 86400;
+    let h = rem_secs / 3600;
+    let mi = (rem_secs % 3600) / 60;
+    let s = rem_secs % 60;
+    let civil = days_to_ymd(days);
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+        civil.0, civil.1, civil.2, h, mi, s, millis
+    )
+}
+
+/// 将"自 1970-01-01 起的天数"转换为 (year, month, day)。
+fn days_to_ymd(days: i64) -> (i64, i64, i64) {
+    let d = days + 719468;
+    let era = if d >= 0 { d / 146097 } else { (d - 146096) / 146097 };
+    let doe = d - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let yy = if m <= 2 { y + 1 } else { y };
+    let dd = doy - (153 * mp + 2) / 5 + 1;
+    (yy, m, dd)
 }
