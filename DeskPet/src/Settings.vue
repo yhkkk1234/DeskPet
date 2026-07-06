@@ -210,6 +210,27 @@ async function repairHistoryOrder() {
   }
 }
 
+const testingConnection = ref(false)
+
+async function testConnection() {
+  if (!aiEndpoint.value.trim()) { showError('请先填写 API Endpoint'); return }
+  if (!aiApiKey.value.trim()) { showError('请先填写 API Key'); return }
+  if (!aiModel.value.trim()) { showError('请先填写 Model 名称'); return }
+  testingConnection.value = true
+  try {
+    const reply = await invoke<string>('test_ai_connection', {
+      endpoint: aiEndpoint.value.trim(),
+      apiKey: aiApiKey.value.trim(),
+      model: aiModel.value.trim(),
+    })
+    showSuccess(`连接成功！模型回复: ${reply.slice(0, 50)}`)
+  } catch (e: any) {
+    showError('连接失败: ' + (e as string))
+  } finally {
+    testingConnection.value = false
+  }
+}
+
 async function saveAIConfig() {
   if (!aiEndpoint.value.trim()) { showError('请填写 API Endpoint'); return }
   if (!aiApiKey.value.trim()) { showError('请填写 API Key'); return }
@@ -521,6 +542,9 @@ const diaryEntryText = computed(() => {
             <label class="config-label">生图 API Key</label>
             <input v-model="aiImageGenApiKey" class="config-input" type="password" placeholder="留空则用主API Key" />
             <p class="field-hint" v-if="aiImageGenEndpoint.trim()">独立生图路径已配置，将使用独立endpoint</p>
+            <button @click="testConnection" :disabled="testingConnection" class="btn btn-secondary btn-full">
+              {{ testingConnection ? '测试中...' : '测试连接' }}
+            </button>
             <button @click="saveAIConfig" class="btn btn-generate btn-full">保存配置</button>
           </div>
         </div>

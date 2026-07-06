@@ -882,6 +882,42 @@ pub fn purge_welcome_messages(
     Ok(total)
 }
 
+/// 测试 AI 连接：用当前配置发一个最简短的对话请求，验证 endpoint+key+model 是否可用。
+/// 不依赖已配置的 ai_config（允许用户在保存前先测试）。
+#[tauri::command]
+pub async fn test_ai_connection(
+    endpoint: String,
+    api_key: String,
+    model: String,
+) -> Result<String, String> {
+    if endpoint.trim().is_empty() {
+        return Err("Endpoint 不能为空".into());
+    }
+    if api_key.trim().is_empty() {
+        return Err("API Key 不能为空".into());
+    }
+    if model.trim().is_empty() {
+        return Err("Model 不能为空".into());
+    }
+
+    let config = AIProviderConfig {
+        endpoint,
+        api_key,
+        model,
+        vision_model: None,
+        image_model: None,
+        image_gen_endpoint: None,
+        image_gen_api_key: None,
+        is_default: true,
+    };
+    let ai_service = AIService::new(config);
+    let reply = ai_service.chat(
+        "You are a test endpoint. Reply with exactly: OK",
+        &[ChatMessage { role: "user".into(), content: "ping".into() }],
+    ).await?;
+    Ok(reply)
+}
+
 #[tauri::command]
 pub fn clear_chat_history(
     ghost_id: String,
