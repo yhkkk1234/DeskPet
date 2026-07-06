@@ -829,13 +829,40 @@ async function analyzeScreenshot(base64: string) {
   }
 
   await openChatWindow()
-  setTimeout(async () => {
+  // 等待对话窗口就绪（监听器注册完成）再发截图数据，避免事件丢失。
+  // 新建窗口：onMounted 末尾会 emit chat:ready；已存在窗口：监听器早已注册，直接发送。
+  const chatWin = await WebviewWindow.getByLabel('chat')
+  const alreadyVisible = chatWin ? await chatWin.isVisible() : false
+  if (alreadyVisible) {
+    // 窗口此前已存在且可见（openChatWindow 走的 else 分支直接 setFocus），
+    // 监听器早就注册好了，直接发截图数据。
     try {
       await emit('chat:open-with-screenshot', { base64 })
     } catch {
       pushSystemMessage('截图数据发送到对话窗口失败', false)
     }
-  }, 300)
+  } else {
+    // 新建窗口：等 chat:ready（带 2s 超时兜底，避免异常时永久卡住）
+    let readyFired = false
+    const readyUnlisten = await listen('chat:ready', () => { readyFired = true })
+    const startWait = Date.now()
+    const waitReady = () => {
+      if (readyFired) {
+        readyUnlisten()
+        emit('chat:open-with-screenshot', { base64 }).catch(() => {
+          pushSystemMessage('截图数据发送到对话窗口失败', false)
+        })
+        return
+      }
+      if (Date.now() - startWait > 2000) {
+        readyUnlisten()
+        emit('chat:open-with-screenshot', { base64 }).catch(() => {})
+        return
+      }
+      setTimeout(waitReady, 50)
+    }
+    waitReady()
+  }
 
   screenshotAnalysisLoading.value = false
 }

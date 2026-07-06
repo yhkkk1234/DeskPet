@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
@@ -420,6 +420,8 @@ onMounted(async () => {
   })
 
   nextTick(() => inputRef.value?.focus())
+  // 通知主窗口：监听器已全部注册、窗口已就绪，可以安全发事件了
+  await emit('chat:ready')
 })
 
 onUnmounted(() => {
