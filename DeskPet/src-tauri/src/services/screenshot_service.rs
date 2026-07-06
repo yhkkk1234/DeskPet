@@ -72,9 +72,13 @@ extern "system" {
 #[cfg(target_os = "windows")]
 const SRCCOPY: u32 = 0x00CC0020;
 #[cfg(target_os = "windows")]
-const SM_CXSCREEN: i32 = 0;
+const SM_XVIRTUALSCREEN: i32 = 76;
 #[cfg(target_os = "windows")]
-const SM_CYSCREEN: i32 = 1;
+const SM_YVIRTUALSCREEN: i32 = 77;
+#[cfg(target_os = "windows")]
+const SM_CXVIRTUALSCREEN: i32 = 78;
+#[cfg(target_os = "windows")]
+const SM_CYVIRTUALSCREEN: i32 = 79;
 #[cfg(target_os = "windows")]
 const DIB_RGB_COLORS: u32 = 0;
 #[cfg(target_os = "windows")]
@@ -83,13 +87,17 @@ const BI_RGB: u32 = 0;
 #[cfg(target_os = "windows")]
 fn capture_screen_win32() -> Result<String, String> {
     unsafe {
-        let w = GetSystemMetrics(SM_CXSCREEN);
-        let h = GetSystemMetrics(SM_CYSCREEN);
+        // 用虚拟屏幕 API 截取所有显示器的合集，支持多屏幕。
+        // SM_XVIRTUALSCREEN/SM_YVIRTUALSCREEN 可能为负（副屏在主屏左侧时）。
+        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if w <= 0 || h <= 0 {
-            return Err(format!("Invalid screen size: {}x{}", w, h));
+            return Err(format!("Invalid virtual screen size: {}x{} at ({},{})", w, h, x, y));
         }
 
-        let pixels = capture_rect(0, 0, w, h)?;
+        let pixels = capture_rect(x, y, w, h)?;
         let png_data = encode_rgba_as_png(w as u32, h as u32, &pixels)?;
         Ok(base64::engine::general_purpose::STANDARD.encode(&png_data))
     }
