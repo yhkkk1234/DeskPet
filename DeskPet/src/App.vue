@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { getCurrentWindow, cursorPosition } from '@tauri-apps/api/window'
+import { getCurrentWindow, cursorPosition, availableMonitors } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import PetRenderer from './components/PetRenderer.vue'
@@ -790,7 +790,36 @@ async function triggerScreenshot() {
     await invoke('store_screenshot_data', { data: base64 })
     await invoke('close_screenshot_window')
 
-    const overlay = new WebviewWindow('screenshot-overlay', {
+    // 计算虚拟屏幕边界（所有显示器的合集），让 overlay 覆盖所有屏幕，
+    // 这样副屏上也能直接选区，而不是把多屏压缩到主屏导致变形。
+    let overlayX = 0, overlayY = 0, overlayW = 0, overlayH = 0
+    try {
+      const monitors = await availableMonitors()
+      if (monitors.length > 0) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        for (const m of monitors) {
+          const pos = m.position()
+          const size = m.size()
+          const sf = m.scaleFactor()
+          const lx = pos.x / sf
+          const ly = pos.y / sf
+          const lw = size.width / sf
+          const lh = size.height / sf
+          if (lx < minX) minX = lx
+          if (ly < minY) minY = ly
+          if (lx + lw > maxX) maxX = lx + lw
+          if (ly + lh > maxY) maxY = ly + lh
+        }
+        overlayX = Math.round(minX)
+        overlayY = Math.round(minY)
+        overlayW = Math.round(maxX - minX)
+        overlayH = Math.round(maxY - minY)
+      }
+    } catch (e) {
+      console.warn('Failed to get multi-monitor info, falling back to fullscreen:', e)
+    }
+
+    const overlayOpts: Record<string, unknown> = {
       url: 'screenshot.html',
       title: 'DeskPet - 截图',
       decorations: false,
@@ -799,8 +828,19 @@ async function triggerScreenshot() {
       skipTaskbar: true,
       resizable: false,
       focus: true,
-      fullscreen: true,
-    })
+    }
+
+    if (overlayW > 0 && overlayH > 0) {
+      overlayOpts.x = overlayX
+      overlayOpts.y = overlayY
+      overlayOpts.width = overlayW
+      overlayOpts.height = overlayH
+    } else {
+      // 兜底：获取显示器信息失败时用 fullscreen（只在主屏）
+      overlayOpts.fullscreen = true
+    }
+
+    const overlay = new WebviewWindow('screenshot-overlay', overlayOpts)
 
     overlay.once('tauri://error', (e: any) => {
       console.error('Screenshot overlay creation error:', e)
