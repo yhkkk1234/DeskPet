@@ -4,7 +4,7 @@ import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { appDataDir } from '@tauri-apps/api/path'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import type { RendererType } from './composables/usePetRenderer'
 import EmotionTimeline from './components/EmotionTimeline.vue'
 
@@ -50,6 +50,11 @@ const appearance = ref({
   opacity: 1,
   scale: 1,
 })
+
+watch(appearance, (val) => {
+  localStorage.setItem('deskpet_appearance', JSON.stringify(val))
+  emit('settings-updated', { section: 'appearance' })
+}, { deep: true })
 
 async function savePersona() {
   if (!ghost.value) return
