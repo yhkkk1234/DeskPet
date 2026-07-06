@@ -84,6 +84,7 @@ pub fn run() {
             commands::chat_commands::generate_diary,
             commands::chat_commands::get_diary_entries,
             commands::screenshot_commands::capture_screenshot,
+            commands::screenshot_commands::get_virtual_screen_bounds,
             commands::screenshot_commands::analyze_screenshot,
             commands::screenshot_commands::store_screenshot_data,
             commands::screenshot_commands::get_screenshot_data,

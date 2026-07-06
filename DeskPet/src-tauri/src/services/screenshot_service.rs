@@ -18,6 +18,28 @@ impl ScreenshotService {
         }
     }
 
+    /// 返回虚拟屏幕的物理边界（所有显示器合集）。
+    /// x/y 可能为负（副屏在主屏左侧时），width/height 是所有屏幕的总尺寸。
+    pub fn virtual_screen_bounds() -> Result<(i32, i32, i32, i32), String> {
+        #[cfg(target_os = "windows")]
+        {
+            unsafe {
+                let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                if w <= 0 || h <= 0 {
+                    return Err(format!("Invalid virtual screen: {}x{} at ({},{})", w, h, x, y));
+                }
+                Ok((x, y, w, h))
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err("Virtual screen bounds is only supported on Windows".into())
+        }
+    }
+
 }
 
 #[cfg(target_os = "windows")]

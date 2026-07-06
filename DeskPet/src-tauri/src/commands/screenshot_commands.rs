@@ -20,6 +20,14 @@ pub async fn capture_screenshot() -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn get_virtual_screen_bounds() -> Result<serde_json::Value, String> {
+    let (x, y, w, h) = tokio::task::spawn_blocking(|| ScreenshotService::virtual_screen_bounds())
+        .await
+        .map_err(|e| format!("获取虚拟屏幕边界失败: {}", e))??;
+    Ok(serde_json::json!({ "x": x, "y": y, "width": w, "height": h }))
+}
+
+#[tauri::command]
 pub fn store_screenshot_data(data: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut screenshot_data = state.screenshot_data.lock().map_err(|e| e.to_string())?;
     *screenshot_data = Some(data);
