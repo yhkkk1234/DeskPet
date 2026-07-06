@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getCurrentWindow, cursorPosition } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import PetRenderer from './components/PetRenderer.vue'
@@ -70,8 +70,11 @@ const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBe
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, framePositions, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
 
 const showToolbar = ref(false)
+const petColumnRef = ref<HTMLElement | null>(null)
 let didDrag = false
 let toolbarHideTimer: ReturnType<typeof setTimeout> | null = null
+let cursorPollId: number | null = null
+let cursorEventsIgnored = true
 function onHover(visible: boolean) {
   if (visible) {
     if (toolbarHideTimer) { clearTimeout(toolbarHideTimer); toolbarHideTimer = null }
@@ -605,6 +608,44 @@ onMounted(async () => {
     stopSpeaking()
   })
 
+  // === 点击穿透：透明区域穿透到桌面，立绘/工具栏区域可交互 ===
+  // 窗口放大到400x400后透明区域较大，不穿透会挡住其他窗口的点击。
+  // setIgnoreCursorEvents(true) 让整个窗口穿透，但会导致立绘也无法点击，
+  // 所以用 requestAnimationFrame 轮询鼠标位置：在立绘区域恢复交互，离开则穿透。
+  const win = getCurrentWindow()
+  await win.setIgnoreCursorEvents(true)
+  cursorEventsIgnored = true
+
+  async function pollCursor() {
+    try {
+      const pos = await cursorPosition()
+      const winPos = await win.outerPosition()
+      const sf = await win.scaleFactor()
+      const logicalX = (pos.x - winPos.x) / sf
+      const logicalY = (pos.y - winPos.y) / sf
+
+      const el = petColumnRef.value
+      const shouldInteract = (() => {
+        if (!el) return false
+        const r = el.getBoundingClientRect()
+        // 工具栏显示时（hover）扩大命中区域到 pet-column 整个高度
+        return logicalX >= r.left && logicalX <= r.right && logicalY >= r.top && logicalY <= r.bottom
+      })()
+
+      if (shouldInteract && cursorEventsIgnored) {
+        await win.setIgnoreCursorEvents(false)
+        cursorEventsIgnored = false
+      } else if (!shouldInteract && !cursorEventsIgnored) {
+        await win.setIgnoreCursorEvents(true)
+        cursorEventsIgnored = true
+      }
+    } catch {
+      // 轮询失败时保持当前状态，下一帧重试
+    }
+    cursorPollId = requestAnimationFrame(pollCursor)
+  }
+  cursorPollId = requestAnimationFrame(pollCursor)
+
   document.addEventListener('keydown', () => {})
 })
 
@@ -613,6 +654,7 @@ onUnmounted(() => {
   if (tickInterval) clearInterval(tickInterval)
   if (autoSaveInterval) clearInterval(autoSaveInterval)
   if (transferAnimInterval) clearInterval(transferAnimInterval)
+  if (cursorPollId) cancelAnimationFrame(cursorPollId)
   if (hotkeyUnlisten) hotkeyUnlisten()
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
   if (settingsHotkeyUnlisten) settingsHotkeyUnlisten()
@@ -934,7 +976,7 @@ const transferParticles = computed(() => {
     </div>
 
     <!-- Pet column: fixed-width container so pet doesn't shift on window resize -->
-    <div class="pet-column" @mouseenter="onHover(true)" @mouseleave="onHover(false)">
+    <div class="pet-column" ref="petColumnRef" @mouseenter="onHover(true)" @mouseleave="onHover(false)">
       <div class="pet-area" @click="handlePetClick" @mousedown.prevent="onPetMouseDown">
         <PetRenderer
           :animation-state="currentAnimationState"
