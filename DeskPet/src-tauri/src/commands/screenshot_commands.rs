@@ -91,8 +91,19 @@ pub async fn analyze_screenshot(
     {
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
-            let msg_id = Uuid::new_v4().to_string();
-            if let Err(e) = db.save_chat_message(&msg_id, &ghost.ghost_id, "assistant", &response) {
+            // 保存用户的截图消息（含文字），确保重启后对话历史完整
+            let user_msg_id = Uuid::new_v4().to_string();
+            let user_content = if question.is_some() {
+                format!("📷 {}", question_text)
+            } else {
+                "📷 截图".to_string()
+            };
+            if let Err(e) = db.save_chat_message(&user_msg_id, &ghost.ghost_id, "user", &user_content) {
+                eprintln!("[screenshot] 保存用户截图消息失败: {}", e);
+            }
+            // 保存桌宠的回复
+            let pet_msg_id = Uuid::new_v4().to_string();
+            if let Err(e) = db.save_chat_message(&pet_msg_id, &ghost.ghost_id, "assistant", &response) {
                 eprintln!("[screenshot] 保存截图分析消息失败: {}", e);
             }
         }

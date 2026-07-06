@@ -238,7 +238,8 @@ function handleSend() {
 
 async function executeScreenShotAnalysis(base64: string, question: string) {
   chatLoading.value = true
-  messages.value.push({ role: 'user', content: '✓ 截图', imageBase64: base64 })
+  messages.value.push({ role: 'user', content: question || '📷 截图', imageBase64: base64 })
+  inputValue.value = ''
   try {
     const params: Record<string, unknown> = { imageBase64: base64 }
     if (question) params.question = question

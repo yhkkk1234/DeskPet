@@ -2,6 +2,8 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { appDataDir } from '@tauri-apps/api/path'
 import { ref, computed, onMounted, watch } from 'vue'
@@ -135,10 +137,47 @@ async function loadLocalStorage() {
   await syncTTSToMain()
 }
 
+async function positionNearPet() {
+  try {
+    const win = getCurrentWindow()
+    const petWin = await WebviewWindow.getByLabel('pet')
+    if (!petWin) return
+
+    const petPos = await petWin.outerPosition()
+    const petSize = await petWin.outerSize()
+    const winSize = await win.outerSize()
+    const scale = await win.scaleFactor()
+
+    const petLogX = petPos.x / scale
+    const petLogY = petPos.y / scale
+    const petLogW = petSize.width / scale
+    const winLogW = winSize.width / scale
+    const winLogH = winSize.height / scale
+    const screenW = window.screen.availWidth
+    const screenH = window.screen.availHeight
+
+    // 优先在桌宠右侧显示，空间不够则在左侧
+    let x: number
+    if (petLogX + petLogW + winLogW + 20 < screenW) {
+      x = Math.round(petLogX + petLogW + 6)
+    } else {
+      x = Math.max(0, Math.round(petLogX - winLogW - 6))
+    }
+    // 垂直方向与桌宠顶部对齐，超出屏幕则夹紧
+    const y = Math.round(Math.max(0, Math.min(petLogY, screenH - winLogH)))
+
+    await win.setPosition(new LogicalPosition(x, y))
+  } catch (e) {
+    console.warn('Failed to position settings window:', e)
+  }
+}
+
 onMounted(async () => {
   await loadLocalStorage()
   fetchGhostStatus()
   loadDiary()
+  // 定位到桌宠附近，避免在默认位置（左上角）闪现
+  await positionNearPet()
   // 加载完成后再显示，避免窗口先在默认位置闪现再加载内容
   const win = getCurrentWindow()
   try {
@@ -211,21 +250,23 @@ async function repairHistoryOrder() {
 }
 
 const testingConnection = ref(false)
+const testResult = ref<{ type: 'success' | 'error'; msg: string } | null>(null)
 
 async function testConnection() {
-  if (!aiEndpoint.value.trim()) { showError('请先填写 API Endpoint'); return }
-  if (!aiApiKey.value.trim()) { showError('请先填写 API Key'); return }
-  if (!aiModel.value.trim()) { showError('请先填写 Model 名称'); return }
+  if (!aiEndpoint.value.trim()) { testResult.value = { type: 'error', msg: '请先填写 API Endpoint' }; return }
+  if (!aiApiKey.value.trim()) { testResult.value = { type: 'error', msg: '请先填写 API Key' }; return }
+  if (!aiModel.value.trim()) { testResult.value = { type: 'error', msg: '请先填写 Model 名称' }; return }
   testingConnection.value = true
+  testResult.value = null
   try {
     const reply = await invoke<string>('test_ai_connection', {
       endpoint: aiEndpoint.value.trim(),
       apiKey: aiApiKey.value.trim(),
       model: aiModel.value.trim(),
     })
-    showSuccess(`连接成功！模型回复: ${reply.slice(0, 50)}`)
+    testResult.value = { type: 'success', msg: `连接成功！模型回复: ${reply.slice(0, 60)}` }
   } catch (e: any) {
-    showError('连接失败: ' + (e as string))
+    testResult.value = { type: 'error', msg: '连接失败: ' + (e as string) }
   } finally {
     testingConnection.value = false
   }
@@ -545,6 +586,7 @@ const diaryEntryText = computed(() => {
             <button @click="testConnection" :disabled="testingConnection" class="btn btn-secondary btn-full">
               {{ testingConnection ? '测试中...' : '测试连接' }}
             </button>
+            <div v-if="testResult" :class="['test-result', testResult.type]">{{ testResult.msg }}</div>
             <button @click="saveAIConfig" class="btn btn-generate btn-full">保存配置</button>
           </div>
         </div>
@@ -1058,6 +1100,25 @@ const diaryEntryText = computed(() => {
   font-size: 10px;
   color: #4caf50;
   margin: 0;
+}
+
+.test-result {
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin: 2px 0;
+  word-break: break-word;
+  line-height: 1.4;
+}
+.test-result.success {
+  background: rgba(76, 175, 80, 0.12);
+  color: #2e7d32;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+.test-result.error {
+  background: rgba(244, 67, 54, 0.12);
+  color: #c62828;
+  border: 1px solid rgba(244, 67, 54, 0.3);
 }
 
 .config-divider {
