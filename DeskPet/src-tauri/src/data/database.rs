@@ -461,6 +461,19 @@ impl Database {
         Ok(())
     }
 
+    /// 删除指定 content 模式匹配的 system 消息。
+    /// 用于清理重启时累积的旧欢迎消息（"灵魂已恢复"/"灵魂已注入"）。
+    pub fn delete_system_messages_like(&self, pattern: &str) -> Result<usize, String> {
+        let deleted = self
+            .conn
+            .execute(
+                "DELETE FROM ChatMessages WHERE Role = 'system' AND Content LIKE ?1",
+                params![pattern],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(deleted)
+    }
+
     /// 修复历史聊天消息的排序问题。
     ///
     /// 旧版本用 `datetime('now')`（秒精度）生成 CreatedAt，导致同一秒内保存的

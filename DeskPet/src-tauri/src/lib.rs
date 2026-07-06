@@ -72,6 +72,7 @@ pub fn run() {
             commands::chat_commands::save_chat_message,
             commands::chat_commands::load_chat_history,
             commands::chat_commands::repair_chat_history_order,
+            commands::chat_commands::purge_welcome_messages,
             commands::chat_commands::clear_chat_history,
             commands::chat_commands::speak_edge_tts,
             commands::chat_commands::generate_image,

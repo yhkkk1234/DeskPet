@@ -206,7 +206,7 @@ async function generateGhost() {
     }
     clearMessages()
     await loadHistory()
-    pushSystemMessage(`${petName.value}的灵魂已注入！点击桌宠或按 Ctrl+Alt+C 开始对话。`, false)
+    pushSystemMessage(`${petName.value}的灵魂已注入！点击桌宠或按 Ctrl+Alt+C 开始对话。`)
     startDailyRoutine()
   } catch (e: any) {
     error.value = e.toString()
@@ -228,8 +228,10 @@ async function loadAutosaveGhost(path: string) {
     if (parsed.personality) {
       setPersonality(parsed.personality)
     }
+    // 先清除旧的欢迎消息，避免每次重启累积重复的"灵魂已恢复"
+    await invoke('purge_welcome_messages').catch(() => {})
     await loadHistory()
-    pushSystemMessage(`${petName.value}的灵魂已恢复！欢迎回来~`, false)
+    pushSystemMessage(`${petName.value}的灵魂已恢复！欢迎回来~`)
     startDailyRoutine()
   } catch (e: any) {
     console.warn('自动加载失败，创建新灵魂:', e)

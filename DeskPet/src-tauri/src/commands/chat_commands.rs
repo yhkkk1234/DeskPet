@@ -871,6 +871,18 @@ pub fn repair_chat_history_order(
 }
 
 #[tauri::command]
+pub fn purge_welcome_messages(
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let mut db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_mut().ok_or("数据库未初始化")?;
+    let mut total = 0;
+    total += db.delete_system_messages_like("%灵魂已恢复%")?;
+    total += db.delete_system_messages_like("%灵魂已注入%")?;
+    Ok(total)
+}
+
+#[tauri::command]
 pub fn clear_chat_history(
     ghost_id: String,
     state: State<'_, AppState>,
