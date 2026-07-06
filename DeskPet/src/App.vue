@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
+import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import PetRenderer from './components/PetRenderer.vue'
 import { useChat } from './composables/useChat'
@@ -72,38 +72,13 @@ const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, fra
 const showToolbar = ref(false)
 let didDrag = false
 let toolbarHideTimer: ReturnType<typeof setTimeout> | null = null
-let shrinkTimer: ReturnType<typeof setTimeout> | null = null
-let windowExpanded = false
-
-const COLLAPSED_W = 150
-const COLLAPSED_H = 158
-const EXPANDED_W = 240
-const EXPANDED_H = 195
-
-async function expandWindow() {
-  if (windowExpanded) return
-  windowExpanded = true
-  const win = getCurrentWindow()
-  await win.setSize(new LogicalSize(EXPANDED_W, EXPANDED_H))
-}
-
-async function shrinkWindow() {
-  if (!windowExpanded) return
-  windowExpanded = false
-  const win = getCurrentWindow()
-  await win.setSize(new LogicalSize(COLLAPSED_W, COLLAPSED_H))
-}
-
 function onHover(visible: boolean) {
   if (visible) {
     if (toolbarHideTimer) { clearTimeout(toolbarHideTimer); toolbarHideTimer = null }
-    if (shrinkTimer) { clearTimeout(shrinkTimer); shrinkTimer = null }
     showToolbar.value = true
-    expandWindow()
   } else {
     toolbarHideTimer = setTimeout(() => {
       showToolbar.value = false
-      shrinkTimer = setTimeout(shrinkWindow, 200)
     }, 250)
   }
 }
@@ -1104,6 +1079,9 @@ const transferParticles = computed(() => {
   position: fixed;
   top: 0;
   left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 13px;
@@ -1150,7 +1128,6 @@ const transferParticles = computed(() => {
 /* Pet Column */
 .pet-column {
   position: relative;
-  width: 150px;
 }
 
 /* Pet Area */
@@ -1168,7 +1145,8 @@ const transferParticles = computed(() => {
 .hover-toolbar {
   position: absolute;
   top: 100%;
-  left: 0;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 8px;

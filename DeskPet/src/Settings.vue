@@ -572,7 +572,7 @@ const diaryEntryText = computed(() => {
             </div>
             <div class="appearance-row">
               <span class="appearance-label">大小</span>
-              <input type="range" min="0.5" max="3" step="0.05" v-model.number="appearance.scale" class="appearance-slider" />
+              <input type="range" min="0.5" max="2.5" step="0.05" v-model.number="appearance.scale" class="appearance-slider" />
               <span class="appearance-value">{{ appearance.scale.toFixed(2) }}x</span>
             </div>
           </div>
