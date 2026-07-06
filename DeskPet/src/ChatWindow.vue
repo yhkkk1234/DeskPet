@@ -357,6 +357,14 @@ let repositionUnlisten: (() => void) | null = null
 onMounted(async () => {
   await loadInitialData()
   await positionNearPet()
+  // 定位完成后再显示，避免窗口先在默认位置闪现再移到目标位置
+  try {
+    await chatWindow.setShadow(false)
+  } catch (e) {
+    console.warn('Failed to disable shadow:', e)
+  }
+  await chatWindow.show()
+  await chatWindow.setFocus()
 
   tokenUnlisten = await listen('chat:token', (event: any) => {
     streamingContent.value += (event.payload as string) || ''

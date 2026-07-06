@@ -430,22 +430,22 @@ async function openSettingsWindow() {
       decorations: false,
       alwaysOnTop: true,
       skipTaskbar: false,
-      visible: true,
+      visible: false,
     })
-    // 等待窗口加载完成
-    await new Promise(resolve => setTimeout(resolve, 300))
-    try {
-      await settingsWin.setShadow(false)
-    } catch (e) {
-      console.warn('Failed to disable shadow:', e)
-    }
-  }
-  const visible = await settingsWin.isVisible()
-  if (visible) {
-    await settingsWin.setFocus()
+    // 窗口创建为不可见，由 Settings.vue 在 onMounted 加载完成后自己 show()，避免默认位置闪现。
+    settingsWin.once('tauri://error', (e: any) => {
+      console.error('Settings window creation error:', e)
+      settingsWin?.close().catch(() => {})
+    })
   } else {
-    await settingsWin.show()
-    await settingsWin.setFocus()
+    // 已存在的窗口：直接显示并聚焦
+    const visible = await settingsWin.isVisible()
+    if (visible) {
+      await settingsWin.setFocus()
+    } else {
+      await settingsWin.show()
+      await settingsWin.setFocus()
+    }
   }
 }
 
@@ -756,7 +756,7 @@ async function openChatWindow() {
         decorations: false,
         alwaysOnTop: true,
         skipTaskbar: false,
-        visible: true,
+        visible: false,
       })
       // 兜底：若 label 冲突（理论上已被 chatOpening 拦住，此处为双保险）
       // 导致 Rust 侧创建失败，捕获 tauri://error 并清理可能已显示的僵尸窗口。
@@ -765,19 +765,16 @@ async function openChatWindow() {
         pushSystemMessage(`对话窗口创建失败: ${e?.payload || e}`, false)
         chatWin.close().catch(() => {})
       })
-      await new Promise(resolve => setTimeout(resolve, 200))
-      try {
-        await chatWin.setShadow(false)
-      } catch (e) {
-        console.warn('Failed to disable shadow:', e)
-      }
-    }
-    const visible = await chatWin.isVisible()
-    if (visible) {
-      await chatWin.setFocus()
+      // 窗口创建为不可见，由 ChatWindow.vue 在定位完成后自己 show()，避免先在默认位置闪现再移到目标位置。
     } else {
-      await chatWin.show()
-      await chatWin.setFocus()
+      // 已存在的窗口：直接显示并聚焦
+      const visible = await chatWin.isVisible()
+      if (visible) {
+        await chatWin.setFocus()
+      } else {
+        await chatWin.show()
+        await chatWin.setFocus()
+      }
     }
   } finally {
     chatOpening = false

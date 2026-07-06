@@ -139,6 +139,15 @@ onMounted(async () => {
   await loadLocalStorage()
   fetchGhostStatus()
   loadDiary()
+  // 加载完成后再显示，避免窗口先在默认位置闪现再加载内容
+  const win = getCurrentWindow()
+  try {
+    await win.setShadow(false)
+  } catch (e) {
+    console.warn('Failed to disable shadow:', e)
+  }
+  await win.show()
+  await win.setFocus()
 })
 
 async function syncTTSToMain() {
