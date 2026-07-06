@@ -1148,7 +1148,7 @@ pub fn get_achievements(state: State<'_, AppState>) -> Result<serde_json::Value,
 
 /// 将毫秒级 Unix 时间戳格式化为带毫秒的 ISO8601 字符串（UTC），如 "2026-07-06 12:34:56.789"
 /// 用于 ChatMessages.CreatedAt，确保同秒内的消息可按毫秒精确排序。
-fn format_ms_iso8601(ms: i64) -> String {
+pub fn format_ms_iso8601(ms: i64) -> String {
     let secs = ms / 1000;
     let millis = ms % 1000;
     let days = secs / 86400;

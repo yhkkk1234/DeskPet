@@ -1,7 +1,9 @@
 use crate::commands::chat_commands::AppState;
+use crate::commands::chat_commands::format_ms_iso8601;
 use crate::services::ai_service::AIService;
 use crate::services::screenshot_service::ScreenshotService;
 use crate::core::soul::impression::ImpressionEvent;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
@@ -91,19 +93,25 @@ pub async fn analyze_screenshot(
     {
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
-            // 保存用户的截图消息（含文字），确保重启后对话历史完整
+            // 用毫秒精度时间戳避免同秒内 user/assistant 排序不稳定
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let user_ts = format_ms_iso8601(now_ms);
+            let pet_ts = format_ms_iso8601(now_ms + 1);
+
             let user_msg_id = Uuid::new_v4().to_string();
             let user_content = if question.is_some() {
                 format!("📷 {}", question_text)
             } else {
                 "📷 截图".to_string()
             };
-            if let Err(e) = db.save_chat_message(&user_msg_id, &ghost.ghost_id, "user", &user_content) {
+            if let Err(e) = db.save_chat_message_with_ts(&user_msg_id, &ghost.ghost_id, "user", &user_content, Some(&user_ts)) {
                 eprintln!("[screenshot] 保存用户截图消息失败: {}", e);
             }
-            // 保存桌宠的回复
             let pet_msg_id = Uuid::new_v4().to_string();
-            if let Err(e) = db.save_chat_message(&pet_msg_id, &ghost.ghost_id, "assistant", &response) {
+            if let Err(e) = db.save_chat_message_with_ts(&pet_msg_id, &ghost.ghost_id, "assistant", &response, Some(&pet_ts)) {
                 eprintln!("[screenshot] 保存截图分析消息失败: {}", e);
             }
         }
