@@ -171,9 +171,9 @@ export function useChat() {
     persistMessage('user', content)
   }
 
-  function pushSystemMessage(content: string) {
+  function pushSystemMessage(content: string, persist = true) {
     chatMessages.value.push({ role: 'system', content })
-    persistMessage('system', content)
+    if (persist) persistMessage('system', content)
   }
 
   function pushPetMessage(content: string) {

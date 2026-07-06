@@ -71,6 +71,7 @@ const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, fra
 
 const showToolbar = ref(false)
 const petColumnRef = ref<HTMLElement | null>(null)
+const toolbarRef = ref<HTMLElement | null>(null)
 let didDrag = false
 let toolbarHideTimer: ReturnType<typeof setTimeout> | null = null
 let cursorPollId: number | null = null
@@ -205,7 +206,7 @@ async function generateGhost() {
     }
     clearMessages()
     await loadHistory()
-    pushSystemMessage(`${petName.value}的灵魂已注入！点击桌宠或按 Ctrl+Alt+C 开始对话。`)
+    pushSystemMessage(`${petName.value}的灵魂已注入！点击桌宠或按 Ctrl+Alt+C 开始对话。`, false)
     startDailyRoutine()
   } catch (e: any) {
     error.value = e.toString()
@@ -228,7 +229,7 @@ async function loadAutosaveGhost(path: string) {
       setPersonality(parsed.personality)
     }
     await loadHistory()
-    pushSystemMessage(`${petName.value}的灵魂已恢复！欢迎回来~`)
+    pushSystemMessage(`${petName.value}的灵魂已恢复！欢迎回来~`, false)
     startDailyRoutine()
   } catch (e: any) {
     console.warn('自动加载失败，创建新灵魂:', e)
@@ -628,8 +629,19 @@ onMounted(async () => {
       const shouldInteract = (() => {
         if (!el) return false
         const r = el.getBoundingClientRect()
-        // 工具栏显示时（hover）扩大命中区域到 pet-column 整个高度
-        return logicalX >= r.left && logicalX <= r.right && logicalY >= r.top && logicalY <= r.bottom
+        if (logicalX >= r.left && logicalX <= r.right && logicalY >= r.top && logicalY <= r.bottom) {
+          return true
+        }
+        // 工具栏是 absolute 定位、溢出在 pet-column 下方，其 rect 不在 pet-column 盒子内，
+        // 需要单独命中判断，否则鼠标移到工具栏时会被判定为离开 → 切穿透 → 按钮点不到
+        const tb = toolbarRef.value
+        if (tb) {
+          const tr = tb.getBoundingClientRect()
+          if (logicalX >= tr.left && logicalX <= tr.right && logicalY >= tr.top && logicalY <= tr.bottom) {
+            return true
+          }
+        }
+        return false
       })()
 
       if (shouldInteract && cursorEventsIgnored) {
@@ -748,7 +760,7 @@ async function openChatWindow() {
       // 导致 Rust 侧创建失败，捕获 tauri://error 并清理可能已显示的僵尸窗口。
       chatWin.once('tauri://error', (e: any) => {
         console.error('Chat window creation error:', e)
-        pushSystemMessage(`对话窗口创建失败: ${e?.payload || e}`)
+        pushSystemMessage(`对话窗口创建失败: ${e?.payload || e}`, false)
         chatWin.close().catch(() => {})
       })
       await new Promise(resolve => setTimeout(resolve, 200))
@@ -793,18 +805,18 @@ async function triggerScreenshot() {
 
     overlay.once('tauri://error', (e: any) => {
       console.error('Screenshot overlay creation error:', e)
-      pushSystemMessage(`截图窗口创建失败: ${e?.payload || e}`)
+      pushSystemMessage(`截图窗口创建失败: ${e?.payload || e}`, false)
       screenshotAnalysisLoading.value = false
     })
   } catch (e: any) {
     screenshotAnalysisLoading.value = false
-    pushSystemMessage(`截图失败: ${e}`)
+    pushSystemMessage(`截图失败: ${e}`, false)
   }
 }
 
 async function analyzeScreenshot(base64: string) {
   if (!ghost.value) {
-    pushSystemMessage('请先生成桌宠灵魂，再进行截图识别。')
+    pushSystemMessage('请先生成桌宠灵魂，再进行截图识别。', false)
     return
   }
 
@@ -822,7 +834,7 @@ async function analyzeScreenshot(base64: string) {
     try {
       await emit('chat:open-with-screenshot', { base64 })
     } catch {
-      pushSystemMessage('截图数据发送到对话窗口失败')
+      pushSystemMessage('截图数据发送到对话窗口失败', false)
     }
   }, 300)
 
@@ -997,7 +1009,7 @@ const transferParticles = computed(() => {
 
       <!-- Hover toolbar (centered below pet) -->
       <transition name="toolbar-fade">
-        <div v-if="showToolbar" class="hover-toolbar" @click.stop>
+        <div v-if="showToolbar" ref="toolbarRef" class="hover-toolbar" @click.stop>
           <div class="hover-info">
             <span class="hover-pet-name">{{ petName }} <span class="hover-lh-score" :style="{ color: affinityColor }">{{ ghost?.loveHate.toFixed(0) }}</span></span>
             <span class="hover-mood-text">{{ moodText }} · 印象 {{ ghost?.impression.overallAffinity.toFixed(0) }}</span>
