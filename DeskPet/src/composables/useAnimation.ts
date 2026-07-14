@@ -3,7 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
 
 export type MoodState = 'love_high' | 'love_low' | 'neutral' | 'cold' | 'distant' | 'curious'
-export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise' | 'blink' | 'dragged' | 'walk' | 'yawn' | 'sleep' | 'pout' | 'stretch'
+export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise' | 'blink' | 'dragged' | 'walk' | 'yawn' | 'sleep' | 'pout' | 'stretch' | 'spin' | 'wave' | 'bounce' | 'poke' | 'shiver' | 'look_around'
 export type DailyBehavior = 'bounce' | 'wave' | 'look_around' | 'stretch' | 'yawn' | 'sleep' | 'pout' | 'poke' | 'spin' | 'shiver' | 'wander' | 'face_left' | 'face_right' | 'teleport' | 'peek'
 export type MovementStyle = 'bouncy' | 'slide' | 'float' | 'walk' | 'teleport'
 export type FacingDirection = 'left' | 'right'
@@ -34,6 +34,13 @@ export const STATE_TO_CSS_CLASS: Record<AnimationState, string> = {
   sleep: 'anim-sleep',
   pout: 'anim-pout',
   stretch: 'anim-stretch',
+  // 新增专属动画 state：CSS 渲染器无对应关键帧，复用相近动作的样式
+  spin: 'anim-happy',
+  wave: 'anim-content',
+  bounce: 'anim-happy',
+  poke: 'anim-curious',
+  shiver: 'anim-cold',
+  look_around: 'anim-curious',
 }
 
 export const STATE_TO_SPRITE_ROW: Record<AnimationState, number> = {
@@ -52,6 +59,13 @@ export const STATE_TO_SPRITE_ROW: Record<AnimationState, number> = {
   sleep: 12,
   pout: 16,
   stretch: 11,
+  // 新增专属动画 state：走 tag range 机制，行号仅在无 tag 时 fallback 使用
+  spin: 2,
+  wave: 3,
+  bounce: 2,
+  poke: 4,
+  shiver: 5,
+  look_around: 4,
 }
 
 export const STATE_TO_FPS: Record<AnimationState, number> = {
@@ -70,6 +84,13 @@ export const STATE_TO_FPS: Record<AnimationState, number> = {
   sleep: 3,
   pout: 4,
   stretch: 5,
+  // 新增专属动画 state：设为 0 表示优先用 JSON duration 算平均 FPS
+  spin: 0,
+  wave: 0,
+  bounce: 0,
+  poke: 0,
+  shiver: 0,
+  look_around: 0,
 }
 
 export const STATE_TO_LOOP: Record<AnimationState, boolean> = {
@@ -88,6 +109,13 @@ export const STATE_TO_LOOP: Record<AnimationState, boolean> = {
   sleep: true,
   pout: false,
   stretch: false,
+  // 新增专属动画 state：日常小动作均循环播放
+  spin: true,
+  wave: true,
+  bounce: true,
+  poke: true,
+  shiver: true,
+  look_around: true,
 }
 
 const MOOD_CONFIGS: Record<MoodState, MoodAnimationConfig> = {
@@ -162,16 +190,16 @@ function loveHateToMood(loveHate: number, curiosityLevel: string): MoodState {
 }
 
 const BEHAVIOR_TO_ANIMATION: Record<DailyBehavior, AnimationState> = {
-  bounce: 'happy',
-  wave: 'content',
-  look_around: 'curious',
+  bounce: 'bounce',
+  wave: 'wave',
+  look_around: 'look_around',
   stretch: 'stretch',
   yawn: 'yawn',
   sleep: 'sleep',
   pout: 'pout',
-  poke: 'curious',
-  spin: 'happy',
-  shiver: 'cold',
+  poke: 'poke',
+  spin: 'spin',
+  shiver: 'shiver',
   wander: 'walk',
   face_left: 'idle',
   face_right: 'idle',

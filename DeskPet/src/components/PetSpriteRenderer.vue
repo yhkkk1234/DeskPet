@@ -36,10 +36,11 @@ function getTagRange(): TagFrameRange | null {
 
 function getFps(): number {
   const override = STATE_TO_FPS[props.animationState]
-  if (override !== undefined) return override
+  // override 为 0 表示该 state 优先用 JSON duration 算 FPS（支持逐动画自定义速度）
+  if (override !== undefined && override > 0) return override
 
   const range = getTagRange()
-  if (!range) return 4
+  if (!range) return override !== undefined && override > 0 ? override : 4
 
   let sumMs = 0
   let count = 0
