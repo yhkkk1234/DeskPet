@@ -107,15 +107,15 @@ export const STATE_TO_LOOP: Record<AnimationState, boolean> = {
   blink: false,
   dragged: true,
   walk: true,
-  yawn: true,
+  yawn: false,
   sleep: true,
   pout: false,
   stretch: false,
-  // 新增专属动画 state：日常小动作均循环播放
-  spin: true,
+  // 新增专属动画 state
+  spin: false,
   wave: true,
   bounce: true,
-  poke: true,
+  poke: false,
   shiver: true,
   look_around: true,
 }
