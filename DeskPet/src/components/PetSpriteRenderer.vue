@@ -20,6 +20,7 @@ const emit = defineEmits<{
 const canvas = ref<HTMLCanvasElement | null>(null)
 const image = ref<HTMLImageElement | null>(null)
 const imageLoaded = ref(false)
+const loading = ref(false)
 
 let currentFrame = 0
 let lastTimestamp = 0
@@ -95,15 +96,18 @@ function getSpriteY(_frameIndex: number): number {
 
 function loadSprite() {
   if (!props.config.src) return
+  loading.value = true
   const img = new Image()
   img.onload = () => {
     image.value = img
     imageLoaded.value = true
+    loading.value = false
     nextTick(() => {
       startRenderLoop()
     })
   }
   img.onerror = () => {
+    loading.value = false
     console.error('Failed to load sprite:', props.config.src)
   }
   img.src = props.config.src
@@ -231,6 +235,7 @@ watch(() => props.config.src, () => {
     animFrameId = null
   }
   imageLoaded.value = false
+  loading.value = false
   currentFrame = 0
   if (props.config.src) {
     loadSprite()
@@ -263,6 +268,9 @@ const wrapperStyle = computed(() => {
       :height="canvasHeight"
       class="pet-sprite-canvas"
     />
+    <div v-else-if="loading" class="pet-sprite-loading">
+      <div class="sprite-loading-spinner"></div>
+    </div>
     <div v-else class="pet-sprite-placeholder">?</div>
   </div>
 </template>
@@ -295,5 +303,26 @@ const wrapperStyle = computed(() => {
   background: rgba(255, 255, 255, 0.3);
   border-radius: 16px;
   border: 2px dashed #ddd;
+}
+
+.pet-sprite-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sprite-loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255, 107, 157, 0.2);
+  border-top: 3px solid #ff6b9d;
+  border-radius: 50%;
+  animation: sprite-spin 0.8s linear infinite;
+}
+
+@keyframes sprite-spin {
+  to { transform: rotate(360deg); }
 }
 </style>
