@@ -68,29 +68,31 @@ export const STATE_TO_SPRITE_ROW: Record<AnimationState, number> = {
   look_around: 4,
 }
 
+// FPS 全部设 0 = 走 JSON duration 算平均 FPS（业内主流做法）。
+// 注释里的数字是原硬编码值，在 Aseprite 调帧时长时可作参考目标。
+// 调优工作流：在 Aseprite 里改帧时长 → 导出 JSON → 运行时自动生效，无需改代码。
 export const STATE_TO_FPS: Record<AnimationState, number> = {
-  idle: 4,
-  happy: 6,
-  content: 4,
-  curious: 5,
-  cold: 3,
-  distant: 2,
-  speaking: 6,
-  surprise: 8,
-  blink: 5,
-  dragged: 6,
-  walk: 8,
-  yawn: 4,
-  sleep: 3,
-  pout: 4,
-  stretch: 5,
-  // 新增专属动画 state：设为 0 表示优先用 JSON duration 算平均 FPS
-  spin: 0,
-  wave: 0,
-  bounce: 0,
-  poke: 0,
-  shiver: 0,
-  look_around: 0,
+  idle: 0,       // 原 4
+  happy: 0,      // 原 6
+  content: 0,    // 原 4
+  curious: 0,    // 原 5
+  cold: 0,       // 原 3
+  distant: 0,    // 原 2
+  speaking: 0,   // 原 6
+  surprise: 0,   // 原 8
+  blink: 0,      // 原 5
+  dragged: 0,    // 原 6
+  walk: 0,       // 原 8
+  yawn: 0,       // 原 4
+  sleep: 0,      // 原 3
+  pout: 0,       // 原 4
+  stretch: 0,    // 原 5
+  spin: 0,       // 原 0（新增，JSON 算出 11，建议在 Aseprite 调慢）
+  wave: 0,       // 原 0（新增，JSON 算出 5）
+  bounce: 0,     // 原 0（新增，JSON 算出 5）
+  poke: 0,       // 原 0（新增，JSON 算出 5）
+  shiver: 0,     // 原 0（新增，JSON 算出 8，建议在 Aseprite 调慢）
+  look_around: 0, // 原 0（新增，JSON 算出 7，建议在 Aseprite 调慢）
 }
 
 export const STATE_TO_LOOP: Record<AnimationState, boolean> = {
