@@ -16,7 +16,8 @@ use services::timeline_service::TimelineState;
 use services::weather_service::WeatherCache;
 
 fn load_tray_icon() -> tauri::image::Image<'static> {
-    let png_bytes = include_bytes!("../icons/32x32.png");
+    // 用 128x128 图标，Windows 托盘在高 DPI 下会自动缩放，避免 32x32 在 150%/200% 缩放下显得小/模糊
+    let png_bytes = include_bytes!("../icons/128x128.png");
     let decoder = png::Decoder::new(Cursor::new(&png_bytes[..]));
     let mut reader = decoder.read_info().expect("Failed to decode tray icon");
     let mut buf = vec![0u8; reader.output_buffer_size()];
