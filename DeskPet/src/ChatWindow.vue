@@ -7,6 +7,7 @@ import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { open } from '@tauri-apps/plugin-dialog'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import BubbleMessage from './components/BubbleMessage.vue'
+import { getVirtualScreenBounds, clampToVirtualScreen } from './composables/useScreenBounds'
 
 interface ChatMessage {
   role: 'pet' | 'user' | 'system'
@@ -91,19 +92,25 @@ async function positionNearPet() {
     const petLogW = petSize.width / scale
     const chatLogW = winSize.width / scale
     const chatLogH = winSize.height / scale
-    const screenW = window.screen.availWidth
+
+    // 用虚拟屏幕（所有显示器合集）边界判断/夹紧，替代 window.screen（仅主屏）
+    const bounds = await getVirtualScreenBounds()
+    const boundsX = bounds.x / scale
+    const boundsW = bounds.width / scale
 
     let x: number
-    if (petLogX + petLogW + chatLogW + 20 < screenW) {
+    if (petLogX + petLogW + chatLogW + 20 < boundsX + boundsW) {
       x = Math.round(petLogX + petLogW + 6)
       tailDirection.value = 'left'
     } else {
-      x = Math.max(0, Math.round(petLogX - chatLogW - 6))
+      x = Math.round(petLogX - chatLogW - 6)
       tailDirection.value = 'right'
     }
-    const y = Math.round(Math.max(0, Math.min(petLogY, screen.availHeight - chatLogH)))
+    const y = Math.round(petLogY)
 
-    await chatWindow.setPosition(new LogicalPosition(x, y))
+    const clamped = await clampToVirtualScreen(x, y, chatLogW, chatLogH, scale)
+
+    await chatWindow.setPosition(new LogicalPosition(Math.round(clamped.x), Math.round(clamped.y)))
   } catch (e) {
     console.warn('Failed to position chat window:', e)
   }
@@ -291,7 +298,7 @@ async function handleFileSelect() {
       multiple: false,
     })
     if (selected) {
-      const filePath = typeof selected === 'string' ? selected : selected.path
+      const filePath = typeof selected === 'string' ? selected : (selected as { path: string }).path
       if (filePath) await doImport(filePath)
     }
   } catch (e: any) {

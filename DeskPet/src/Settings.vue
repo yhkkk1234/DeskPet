@@ -9,6 +9,10 @@ import { appDataDir } from '@tauri-apps/api/path'
 import { ref, computed, onMounted, watch } from 'vue'
 import type { RendererType } from './composables/usePetRenderer'
 import EmotionTimeline from './components/EmotionTimeline.vue'
+import { getVirtualScreenBounds, clampToVirtualScreen } from './composables/useScreenBounds'
+
+/** 与后端 KEY_MASK 保持一致：密钥未修改时传回占位符，后端保留已保存的密钥 */
+const KEY_MASK = '********'
 
 const aiEndpoint = ref('https://api.deepseek.com/v1')
 const aiApiKey = ref('')
@@ -27,7 +31,6 @@ const spriteJsonSrc = ref('/pet/pet_spritesheet.json')
 const lottieSrc = ref('/pet/lottie/')
 
 const ghost = ref<any>(null)
-const saveLoadPath = ref('')
 const error = ref('')
 const success = ref('')
 
@@ -116,12 +119,19 @@ async function loadLocalStorage() {
   spriteJsonSrc.value = localStorage.getItem('deskpet_sprite_json_src') || '/pet/pet_spritesheet.json'
   lottieSrc.value = localStorage.getItem('deskpet_lottie_src') || '/pet/lottie/'
   aiEndpoint.value = localStorage.getItem('deskpet_ai_endpoint') || 'https://api.deepseek.com/v1'
-  aiApiKey.value = localStorage.getItem('deskpet_ai_api_key') || ''
   aiModel.value = localStorage.getItem('deskpet_ai_model') || 'deepseek-chat'
   aiVisionModel.value = localStorage.getItem('deskpet_ai_vision_model') || ''
   aiImageModel.value = localStorage.getItem('deskpet_ai_image_model') || ''
   aiImageGenEndpoint.value = localStorage.getItem('deskpet_ai_image_gen_endpoint') || ''
-  aiImageGenApiKey.value = localStorage.getItem('deskpet_ai_image_gen_api_key') || ''
+  // 密钥不再从 localStorage 读取明文：已保存的显示掩码占位符（明文只存在于后端内存/加密文件）
+  try {
+    const has = await invoke<boolean>('has_saved_ai_config')
+    aiApiKey.value = has ? KEY_MASK : ''
+    aiImageGenApiKey.value = has ? KEY_MASK : ''
+  } catch {
+    aiApiKey.value = ''
+    aiImageGenApiKey.value = ''
+  }
   ttsEnabled.value = localStorage.getItem('deskpet_tts_enabled') === 'true'
   ttsRate.value = parseFloat(localStorage.getItem('deskpet_tts_rate') || '1.0')
   ttsPitch.value = parseFloat(localStorage.getItem('deskpet_tts_pitch') || '1.1')
@@ -153,20 +163,25 @@ async function positionNearPet() {
     const petLogW = petSize.width / scale
     const winLogW = winSize.width / scale
     const winLogH = winSize.height / scale
-    const screenW = window.screen.availWidth
-    const screenH = window.screen.availHeight
+
+    // 用虚拟屏幕（所有显示器合集）边界判断/夹紧，替代 window.screen（仅主屏）
+    const bounds = await getVirtualScreenBounds()
+    const boundsX = bounds.x / scale
+    const boundsW = bounds.width / scale
 
     // 优先在桌宠右侧显示，空间不够则在左侧
     let x: number
-    if (petLogX + petLogW + winLogW + 20 < screenW) {
+    if (petLogX + petLogW + winLogW + 20 < boundsX + boundsW) {
       x = Math.round(petLogX + petLogW + 6)
     } else {
-      x = Math.max(0, Math.round(petLogX - winLogW - 6))
+      x = Math.round(petLogX - winLogW - 6)
     }
-    // 垂直方向与桌宠顶部对齐，超出屏幕则夹紧
-    const y = Math.round(Math.max(0, Math.min(petLogY, screenH - winLogH)))
+    // 垂直方向与桌宠顶部对齐，超出虚拟屏幕则夹紧
+    const y = Math.round(petLogY)
 
-    await win.setPosition(new LogicalPosition(x, y))
+    const clamped = await clampToVirtualScreen(x, y, winLogW, winLogH, scale)
+
+    await win.setPosition(new LogicalPosition(Math.round(clamped.x), Math.round(clamped.y)))
   } catch (e) {
     console.warn('Failed to position settings window:', e)
   }
@@ -280,20 +295,25 @@ async function saveAIConfig() {
   try {
     await invoke('configure_ai', {
       endpoint: aiEndpoint.value.trim(),
-      apiKey: aiApiKey.value.trim(),
+      apiKey: aiApiKey.value.trim() || KEY_MASK,
       model: aiModel.value.trim(),
       visionModel: aiVisionModel.value.trim() || null,
       imageModel: aiImageModel.value.trim() || null,
       imageGenEndpoint: aiImageGenEndpoint.value.trim() || null,
       imageGenApiKey: aiImageGenApiKey.value.trim() || null,
     })
+    // 非敏感项仍可存 localStorage（向后兼容展示用）
     localStorage.setItem('deskpet_ai_endpoint', aiEndpoint.value.trim())
-    localStorage.setItem('deskpet_ai_api_key', aiApiKey.value.trim())
     localStorage.setItem('deskpet_ai_model', aiModel.value.trim())
     localStorage.setItem('deskpet_ai_vision_model', aiVisionModel.value.trim())
     localStorage.setItem('deskpet_ai_image_model', aiImageModel.value.trim())
     localStorage.setItem('deskpet_ai_image_gen_endpoint', aiImageGenEndpoint.value.trim())
-    localStorage.setItem('deskpet_ai_image_gen_api_key', aiImageGenApiKey.value.trim())
+    // 迁移清理：删除旧版明文密钥（若存在），此后密钥只存于后端加密文件
+    localStorage.removeItem('deskpet_ai_api_key')
+    localStorage.removeItem('deskpet_ai_image_gen_api_key')
+    // 保存成功后输入框切换为掩码，避免明文残留在页面 DOM 中
+    aiApiKey.value = KEY_MASK
+    aiImageGenApiKey.value = KEY_MASK
     showSuccess('AI 配置已保存')
     await emit('settings-updated', { section: 'ai' })
   } catch (e: any) {
@@ -543,14 +563,6 @@ async function renameGhost() {
     showError('改名失败: ' + e)
   }
 }
-
-const diaryEntryText = computed(() => {
-  const map: Record<string, string> = {}
-  for (const e of diaryEntries.value) {
-    map[e.id] = diaryExpanded.value[e.id] ? e.summary : e.summary.slice(0, 40) + (e.summary.length > 40 ? '...' : '')
-  }
-  return map
-})
 </script>
 
 <template>

@@ -9,6 +9,7 @@ import PetRenderer from './components/PetRenderer.vue'
 import { useChat } from './composables/useChat'
 import { useAnimation } from './composables/useAnimation'
 import { usePetRenderer } from './composables/usePetRenderer'
+import { clampToVirtualScreen } from './composables/useScreenBounds'
 
 interface GhostStatus {
   ghostId: string
@@ -175,7 +176,7 @@ const petStyleOverride = computed(() => {
   return {
     transform: `translate(${petX.value}px, ${petY.value}px) scale(${a.scale})`,
     filter: `hue-rotate(${a.hueRotate}deg) brightness(${a.brightness}) saturate(${a.saturate}) contrast(${a.contrast})`,
-    opacity: a.opacity,
+    opacity: String(a.opacity),
   }
 })
 
@@ -463,33 +464,34 @@ onMounted(async () => {
     console.warn('同步回应模式失败:', e)
   }
 
-  // 启动时把 localStorage 中保存的 AI 配置还原到后端内存。
-  // 后端 AppState.ai_config 启动为 None，不做这一步会导致每次重启应用后
-  // 后端丢失配置，必须用户再点一次「保存」才能恢复对话/文档功能。
-  // Key 本就存储在 localStorage，此处只是原样回传，不增加任何泄露面。
-  //
-  // TODO(安全): API Key 以明文存于 localStorage（WebView2 用户目录）。
-  //   对本地单机桌宠够用；若将来 Key 涉及更高敏感度（云存储/支付等）或要分发上架，
-  //   应改用 tauri-plugin-stronghold（加密保险库）替代 localStorage。
+  // 启动时恢复 AI 配置：
+  // 1. 优先从后端加密文件解密加载（明文不进前端）
+  // 2. 旧版本用户 localStorage 中仍有明文密钥——作为一次性迁移回传并加密落盘后清除
   try {
-    const savedEndpoint = localStorage.getItem('deskpet_ai_endpoint')
-    const savedApiKey = localStorage.getItem('deskpet_ai_api_key')
-    const savedModel = localStorage.getItem('deskpet_ai_model')
-    if (savedEndpoint && savedApiKey && savedModel) {
-      await invoke('configure_ai', {
-        endpoint: savedEndpoint,
-        apiKey: savedApiKey,
-        model: savedModel,
-        visionModel: localStorage.getItem('deskpet_ai_vision_model') || null,
-        imageModel: localStorage.getItem('deskpet_ai_image_model') || null,
-        imageGenEndpoint: localStorage.getItem('deskpet_ai_image_gen_endpoint') || null,
-        imageGenApiKey: localStorage.getItem('deskpet_ai_image_gen_api_key') || null,
-      })
-    } else {
-      // 首次启动或未配置：引导用户去设置 AI 接口。
-      // 没有可用 AI 配置时，桌宠能动能展示但无法对话/情感/记忆——这是最大的新手流失点。
-      // 延迟一点再弹，避免与初始化的 ghost 生成/窗口定位抢焦点。
-      setTimeout(() => { openSettingsWindow() }, 1200)
+    const restored = await invoke<boolean>('restore_ai_config')
+    if (!restored) {
+      const savedEndpoint = localStorage.getItem('deskpet_ai_endpoint')
+      const savedApiKey = localStorage.getItem('deskpet_ai_api_key')
+      const savedModel = localStorage.getItem('deskpet_ai_model')
+      if (savedEndpoint && savedApiKey && savedModel) {
+        await invoke('configure_ai', {
+          endpoint: savedEndpoint,
+          apiKey: savedApiKey,
+          model: savedModel,
+          visionModel: localStorage.getItem('deskpet_ai_vision_model') || null,
+          imageModel: localStorage.getItem('deskpet_ai_image_model') || null,
+          imageGenEndpoint: localStorage.getItem('deskpet_ai_image_gen_endpoint') || null,
+          imageGenApiKey: localStorage.getItem('deskpet_ai_image_gen_api_key') || null,
+        })
+        // 迁移成功：加密已落盘，清除明文
+        localStorage.removeItem('deskpet_ai_api_key')
+        localStorage.removeItem('deskpet_ai_image_gen_api_key')
+      } else {
+        // 首次启动或未配置：引导用户去设置 AI 接口。
+        // 没有可用 AI 配置时，桌宠能动能展示但无法对话/情感/记忆——这是最大的新手流失点。
+        // 延迟一点再弹，避免与初始化的 ghost 生成/窗口定位抢焦点。
+        setTimeout(() => { openSettingsWindow() }, 1200)
+      }
     }
   } catch (e) {
     console.warn('还原 AI 配置失败:', e)
@@ -763,7 +765,7 @@ async function openChatWindow() {
       chatWin.once('tauri://error', (e: any) => {
         console.error('Chat window creation error:', e)
         pushSystemMessage(`对话窗口创建失败: ${e?.payload || e}`, false)
-        chatWin.close().catch(() => {})
+        chatWin?.close().catch(() => {})
       })
       // 窗口创建为不可见，由 ChatWindow.vue 在定位完成后自己 show()，避免先在默认位置闪现再移到目标位置。
     } else {
@@ -918,13 +920,17 @@ async function movePetToScreenshotRegion() {
     const winLogicalH = winSize.height / scaleFactor
 
     const targetScreenX = region.x / scaleFactor + region.width / scaleFactor + 20
-    const screenW = window.screen.availWidth
-    const screenH = window.screen.availHeight
 
-    let finalX = Math.max(0, Math.min(targetScreenX, screenW - winLogicalW))
-    let finalY = Math.max(0, Math.min(region.y / scaleFactor - 40, screenH - winLogicalH))
+    // 用虚拟屏幕（所有显示器合集）边界夹紧，替代 window.screen（仅主屏）
+    const clamped = await clampToVirtualScreen(
+      targetScreenX,
+      region.y / scaleFactor - 40,
+      winLogicalW,
+      winLogicalH,
+      scaleFactor,
+    )
 
-    await win.setPosition(new LogicalPosition(Math.round(finalX), Math.round(finalY)))
+    await win.setPosition(new LogicalPosition(Math.round(clamped.x), Math.round(clamped.y)))
     petX.value = 0
     petY.value = 0
   } catch (e) {

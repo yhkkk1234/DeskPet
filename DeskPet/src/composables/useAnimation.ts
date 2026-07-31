@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
+import { clampToVirtualScreen } from './useScreenBounds'
 
 export type MoodState = 'love_high' | 'love_low' | 'neutral' | 'cold' | 'distant' | 'curious'
 export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise' | 'blink' | 'dragged' | 'walk' | 'yawn' | 'sleep' | 'pout' | 'stretch' | 'spin' | 'wave' | 'bounce' | 'poke' | 'shiver' | 'look_around'
@@ -330,18 +331,19 @@ export function useAnimation() {
         const dpiScale = window.devicePixelRatio || 1
         const win = getCurrentWindow()
 
-        win.outerPosition().then((pos) => {
+        win.outerPosition().then(async (pos) => {
           if (animationGen !== gen) { resolve(); return }
 
           const logicalX = pos.x / dpiScale
           const logicalY = pos.y / dpiScale
           const targetX = logicalX + direction * distance
-          const screenW = window.screen.availWidth
-          const screenH = window.screen.availHeight
           const winW = window.innerWidth
           const winH = window.innerHeight
-          const clampedX = Math.max(0, Math.min(targetX, screenW - winW))
-          const clampedY = Math.max(0, Math.min(logicalY, screenH - winH))
+
+          // 用虚拟屏幕（所有显示器合集）边界夹紧，替代 window.screen（仅主屏）
+          const clamped = await clampToVirtualScreen(targetX, logicalY, winW, winH, dpiScale)
+          const clampedX = clamped.x
+          const clampedY = clamped.y
 
           if (movementStyle.value === 'teleport') {
             currentAnimationState.value = 'surprise'

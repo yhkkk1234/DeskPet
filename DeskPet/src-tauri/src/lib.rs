@@ -63,6 +63,8 @@ pub fn run() {
             commands::ghost_commands::generate_persona,
             commands::chat_commands::chat_with_pet,
             commands::chat_commands::configure_ai,
+            commands::chat_commands::restore_ai_config,
+            commands::chat_commands::has_saved_ai_config,
             commands::chat_commands::test_ai_connection,
             commands::chat_commands::configure_weather,
             commands::chat_commands::init_database,

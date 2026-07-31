@@ -7,6 +7,7 @@ use crate::core::soul::emotional_event::{EmotionalEvent, EmotionalEventType};
 use crate::core::prompt::prompt_builder::{AnsweringMode, PromptBuilder};
 use crate::core::prompt::token_budget::TokenBudget;
 use crate::data::database::{Database, DocumentKnowledgeRow};
+use crate::data::secure_config::SecureConfigManager;
 use crate::services::ai_service::{AIService, AIProviderConfig, ChatMessage};
 use crate::services::memory_service::MemoryService;
 use crate::core::memory::local_compressor;
@@ -14,6 +15,9 @@ use crate::services::sentiment_service::{parse_event_type, SentimentAnalyzer};
 use crate::services::memory_compressor::MemoryCompressor;
 use crate::services::timeline_service::TimelineState;
 use crate::services::weather_service::WeatherCache;
+
+/// API Key 掩码占位符：前端未修改密钥时传回此值，后端保留已存储的密钥。
+pub const KEY_MASK: &str = "********";
 
 pub struct AppState {
     pub ghost: Mutex<Option<Ghost>>,
@@ -421,42 +425,90 @@ pub fn configure_ai(
     if endpoint.trim().is_empty() {
         return Err("Endpoint 不能为空".into());
     }
-    if api_key.trim().is_empty() {
-        return Err("API Key 不能为空".into());
-    }
     if model.trim().is_empty() {
         return Err("Model 不能为空".into());
     }
+
+    // 掩码占位符：前端未修改密钥，从已保存配置中恢复。
+    // 已保存配置优先取磁盘加密文件，其次取当前内存（恢复前用户刚测试过等场景）。
+    let saved = SecureConfigManager::load_ai_config().ok().flatten();
+    let in_mem = {
+        let locked = state.ai_config.lock().map_err(|e| e.to_string())?;
+        locked.clone()
+    };
+    let stored = saved.as_ref().or(in_mem.as_ref());
+
+    let api_key = if api_key == KEY_MASK {
+        stored
+            .map(|c| c.api_key.clone())
+            .ok_or("API Key 为占位符但未找到已保存的密钥，请重新填写")?
+    } else {
+        api_key
+    };
+    if api_key.trim().is_empty() {
+        return Err("API Key 不能为空".into());
+    }
+
+    let image_gen_api_key = match image_gen_api_key {
+        Some(k) if k == KEY_MASK => {
+            stored.and_then(|c| c.image_gen_api_key.clone())
+        }
+        Some(k) if !k.trim().is_empty() => Some(k),
+        _ => None,
+    };
 
     let config = AIProviderConfig {
         endpoint,
         api_key,
         model,
-        vision_model,
-        image_model,
+        vision_model: vision_model.filter(|s| !s.trim().is_empty()),
+        image_model: image_model.filter(|s| !s.trim().is_empty()),
         image_gen_endpoint: image_gen_endpoint.filter(|s| !s.trim().is_empty()),
-        image_gen_api_key: image_gen_api_key.filter(|s| !s.trim().is_empty()),
+        image_gen_api_key,
         is_default: true,
     };
+
+    // 先加密落盘再写入内存：写盘失败视为保存失败，避免「显示成功重启却丢失」
+    SecureConfigManager::save_ai_config(&config)?;
 
     {
         let mut locked = state.ai_config.lock().map_err(|e| e.to_string())?;
         *locked = Some(config);
     }
 
-    {
-        let mut db_guard = state.db.lock().map_err(|e| e.to_string())?;
-        if db_guard.is_none() {
-            let app_data_dir = dirs::data_dir()
-                .ok_or("无法获取应用数据目录")?;
-            let db_path = app_data_dir.join("DeskPet").join("deskpet.db");
-            std::fs::create_dir_all(db_path.parent().ok_or("无法创建数据库目录")?)
-                .map_err(|e| format!("创建目录失败: {}", e))?;
-            let db = Database::new(db_path.to_str().ok_or("数据库路径无效")?)?;
-            *db_guard = Some(db);
-        }
-    }
+    init_database_if_needed(&state)?;
 
+    Ok(())
+}
+
+/// 启动时恢复 AI 配置：从加密文件解密并写入后端内存（明文不回传前端）。
+#[tauri::command]
+pub fn restore_ai_config(state: State<'_, AppState>) -> Result<bool, String> {
+    let Some(config) = SecureConfigManager::load_ai_config()? else {
+        return Ok(false);
+    };
+    {
+        let mut locked = state.ai_config.lock().map_err(|e| e.to_string())?;
+        *locked = Some(config);
+    }
+    init_database_if_needed(&state)?;
+    Ok(true)
+}
+
+/// 是否存在已加密保存的 AI 配置（前端据此显示密钥掩码）。
+#[tauri::command]
+pub fn has_saved_ai_config() -> Result<bool, String> {
+    Ok(SecureConfigManager::has_ai_config())
+}
+
+fn init_database_if_needed(state: &State<'_, AppState>) -> Result<(), String> {
+    let mut db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    if db_guard.is_none() {
+        let app_data_dir = crate::data::app_data_dir().map_err(|e| e.to_string())?;
+        let db_path = app_data_dir.join("deskpet.db");
+        let db = Database::new(db_path.to_str().ok_or("数据库路径无效")?)?;
+        *db_guard = Some(db);
+    }
     Ok(())
 }
 
@@ -893,11 +945,20 @@ pub async fn test_ai_connection(
     if endpoint.trim().is_empty() {
         return Err("Endpoint 不能为空".into());
     }
-    if api_key.trim().is_empty() {
-        return Err("API Key 不能为空".into());
-    }
     if model.trim().is_empty() {
         return Err("Model 不能为空".into());
+    }
+
+    // 掩码占位符：用已加密保存的密钥测试（前端不持有明文）
+    let api_key = if api_key == KEY_MASK {
+        SecureConfigManager::load_ai_config()?
+            .ok_or("API Key 为占位符但未找到已保存的密钥，请重新填写")?
+            .api_key
+    } else {
+        api_key
+    };
+    if api_key.trim().is_empty() {
+        return Err("API Key 不能为空".into());
     }
 
     let config = AIProviderConfig {

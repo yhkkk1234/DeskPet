@@ -6,9 +6,9 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 
 use crate::core::ghost::Ghost;
+use crate::data::get_or_create_master_key;
 
 const GHOST_FILE_VERSION: &[u8; 2] = b"GF";
-const KEY_FILE_NAME: &str = "master.key";
 
 #[derive(Debug, thiserror::Error)]
 pub enum GhostFileError {
@@ -25,46 +25,6 @@ pub enum GhostFileError {
 }
 
 pub struct GhostFileManager;
-
-fn get_app_data_dir() -> Result<std::path::PathBuf, GhostFileError> {
-    let dir = dirs::data_dir().ok_or_else(|| {
-        GhostFileError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Cannot determine app data directory",
-        ))
-    })?;
-    let app_dir = dir.join("DeskPet");
-    std::fs::create_dir_all(&app_dir)?;
-    Ok(app_dir)
-}
-
-fn get_or_create_master_key() -> Result<[u8; 32], GhostFileError> {
-    let app_dir = get_app_data_dir()?;
-    let key_path = app_dir.join(KEY_FILE_NAME);
-
-    for _ in 0..3 {
-        if key_path.exists() {
-            let key_bytes = std::fs::read(&key_path)?;
-            if key_bytes.len() == 32 {
-                let mut key = [0u8; 32];
-                key.copy_from_slice(&key_bytes);
-                return Ok(key);
-            }
-            let _ = std::fs::remove_file(&key_path);
-        }
-
-        let mut key = [0u8; 32];
-        use rand::RngCore;
-        OsRng.fill_bytes(&mut key);
-        std::fs::write(&key_path, key)?;
-        return Ok(key);
-    }
-
-    Err(GhostFileError::Io(std::io::Error::new(
-        std::io::ErrorKind::InvalidData,
-        "Failed to create valid master key after 3 attempts",
-    )))
-}
 
 fn derive_file_key(master_key: &[u8; 32], salt: &[u8]) -> [u8; 32] {
     let hkdf = Hkdf::<Sha256>::new(Some(salt), master_key);
