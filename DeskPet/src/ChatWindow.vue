@@ -49,6 +49,19 @@ let typingFrame = 0
 let typingInterval: ReturnType<typeof setInterval> | null = null
 const typingText = computed(() => typingDots.value.join(' '))
 
+const impressionNote = ref('')
+
+async function refreshImpressionNote() {
+  try {
+    const status = await invoke<string>('get_ghost_status')
+    const parsed = JSON.parse(status)
+    const snips: string[] | undefined = parsed?.impression?.snippets
+    impressionNote.value = Array.isArray(snips) && snips.length ? snips[snips.length - 1] : ''
+  } catch {
+    // 没有 ghost 时静默，不打扰聊天
+  }
+}
+
 function scrollToBottom() {
   nextTick(() => {
     if (messageListRef.value) {
@@ -365,6 +378,7 @@ let repositionUnlisten: (() => void) | null = null
 onMounted(async () => {
   await loadInitialData()
   await positionNearPet()
+  await refreshImpressionNote()
   // 定位完成后再显示，避免窗口先在默认位置闪现再移到目标位置
   try {
     await chatWindow.setShadow(false)
@@ -411,6 +425,7 @@ onMounted(async () => {
     }
 
     if (data.impression?.latestSnippet) {
+      impressionNote.value = data.impression.latestSnippet
       messages.value.push({ role: 'system', content: `印象: ${data.impression.latestSnippet}` })
     }
 
@@ -508,6 +523,12 @@ onUnmounted(() => {
       <div v-if="importingDoc" class="import-banner">
         <span class="import-icon">📖</span>
         <span class="import-text">正在阅读《{{ importingDocTitle }}》……</span>
+      </div>
+
+      <!-- 它眼中：常驻印象行 -->
+      <div v-if="impressionNote" class="impression-note" title="宠物最近对你的印象">
+        <span class="impression-note-icon">💭</span>
+        <span class="impression-note-text">{{ impressionNote }}</span>
       </div>
 
       <!-- Input area -->
@@ -758,6 +779,28 @@ onUnmounted(() => {
   border-top: 1px solid rgba(0, 0, 0, 0.06);
   flex-shrink: 0;
   background: rgba(0, 0, 0, 0.02);
+}
+
+.impression-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px 0;
+  font-size: 10.5px;
+  color: #9a8fc0;
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.impression-note-icon {
+  flex-shrink: 0;
+}
+
+.impression-note-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mode-toggle {

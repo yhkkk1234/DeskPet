@@ -486,6 +486,46 @@ const personalityLabels: Record<string, string> = {
   creativity: '创造',
 }
 
+const impressionKeys = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism', 'creativity']
+
+const IMPRESSION_RANGE = 40
+
+const impressionSnippets = computed(() => {
+  const snips = ghost.value?.impression?.snippets
+  return Array.isArray(snips) ? [...snips].reverse() : []
+})
+
+const impressionColor = computed(() => {
+  const v = ghost.value?.impression?.overallAffinity ?? 0
+  if (v > 30) return '#ff6b9d'
+  if (v > 10) return '#8bc34a'
+  if (v > -10) return '#ffb74d'
+  if (v > -30) return '#ff9800'
+  return '#f44336'
+})
+
+const impressionSummary = computed(() => {
+  const v = ghost.value?.impression?.overallAffinity ?? 0
+  if (v > 30) return `${v.toFixed(1)} — 它觉得你是个很好的人`
+  if (v > 10) return `${v.toFixed(1)} — 它对你还不错`
+  if (v > -10) return `${v.toFixed(1)} — 它还没什么特别倾向`
+  if (v > -30) return `${v.toFixed(1)} — 它对你印象不太好`
+  return `${v.toFixed(1)} — 它觉得你不合它的意`
+})
+
+function formatImpression(score: number) {
+  const s = Math.max(-IMPRESSION_RANGE, Math.min(IMPRESSION_RANGE, score))
+  return (s > 0 ? '+' : '') + s.toFixed(1)
+}
+
+function impressionBarStyle(score: number) {
+  const s = Math.max(-IMPRESSION_RANGE, Math.min(IMPRESSION_RANGE, score))
+  const half = s / (IMPRESSION_RANGE * 2) * 100
+  const width = Math.abs(half)
+  const left = s >= 0 ? 50 : 50 - width
+  return { left: left + '%', width: Math.max(2, width) + '%' }
+}
+
 const eventGroups = [
   { label: '正向', events: [
     { type: 'UserCaredAboutPet', intensity: 0.8, name: '关心', cls: 'btn-positive' },
@@ -747,6 +787,40 @@ async function renameGhost() {
               <span class="p-val">{{ (val*100).toFixed(0) }}</span>
             </div>
           </div>
+        </div>
+
+        <!-- 它眼中的你 (主人印象可视化) -->
+        <div v-if="ghost" class="settings-section">
+          <div class="settings-section-title">🐾 它眼中的你</div>
+          <div class="settings-desc">宠物在每次对话中悄悄积累的对你的印象——这份认知会动态影响它的情感与语气</div>
+
+          <div class="stat-row">
+            <span>总体印象</span>
+            <span class="stat-value" :style="{ color: impressionColor }">{{ impressionSummary }}</span>
+          </div>
+
+          <div class="impression-grid">
+            <div class="impression-item" v-for="key in impressionKeys" :key="key">
+              <span class="i-label">{{ personalityLabels[key] || key }}</span>
+              <div class="i-bar">
+                <div class="i-bar-center"></div>
+                <div
+                  class="i-fill"
+                  :class="(ghost.impression[key + 'Score'] ?? 0) >= 0 ? 'i-fill-pos' : 'i-fill-neg'"
+                  :style="impressionBarStyle(ghost.impression[key + 'Score'] ?? 0)"
+                ></div>
+              </div>
+              <span class="i-val" :class="(ghost.impression[key + 'Score'] ?? 0) >= 0 ? 'i-val-pos' : 'i-val-neg'">
+                {{ formatImpression(ghost.impression[key + 'Score'] ?? 0) }}
+              </span>
+            </div>
+          </div>
+
+          <div v-if="impressionSnippets.length" class="impression-snippets">
+            <div class="snippets-title">💭 印象片段</div>
+            <div v-for="(s, idx) in impressionSnippets" :key="idx" class="snippet-item">{{ s }}</div>
+          </div>
+          <p v-else class="snippets-empty">还没有印象记录——多和它聊聊，它会开始慢慢认识你</p>
         </div>
 
         <!-- Persona -->
@@ -1496,6 +1570,107 @@ async function renameGhost() {
   text-align: right;
   color: #888;
   font-size: 10px;
+}
+
+/* 它眼中的你 — 印象双向条 */
+.impression-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.impression-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.i-label {
+  width: 32px;
+  text-align: right;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.i-bar {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  background: #f3f3f3;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.i-bar-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #ccc;
+  z-index: 1;
+}
+
+.i-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  transition: left 0.5s ease, width 0.5s ease;
+}
+
+.i-fill-pos {
+  background: linear-gradient(90deg, #8bc34a, #43a047);
+}
+
+.i-fill-neg {
+  background: linear-gradient(90deg, #f44336, #ff8a80);
+}
+
+.i-val {
+  width: 44px;
+  text-align: right;
+  font-size: 10px;
+}
+
+.i-val-pos {
+  color: #43a047;
+}
+
+.i-val-neg {
+  color: #f44336;
+}
+
+.impression-snippets {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed #e0e0e0;
+}
+
+.snippets-title {
+  font-size: 11px;
+  color: #888;
+}
+
+.snippet-item {
+  font-size: 12px;
+  color: #555;
+  line-height: 1.5;
+  padding: 3px 6px;
+  background: #fafafa;
+  border-radius: 6px;
+  border-left: 3px solid #c084fc;
+}
+
+.snippets-empty {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #aaa;
 }
 
 .event-groups {
