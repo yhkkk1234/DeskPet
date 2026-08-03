@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { LogicalPosition } from '@tauri-apps/api/dpi'
+import { LogicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { open } from '@tauri-apps/plugin-dialog'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import BubbleMessage from './components/BubbleMessage.vue'
@@ -56,6 +56,49 @@ const recording = ref(false)
 const transcribing = ref(false)
 const recordingSeconds = ref(0)
 let recordingTimer: ReturnType<typeof setInterval> | null = null
+
+// ===== 窗口右下角拉伸手柄（无边框窗口无系统拉伸边框）=====
+const MIN_WINDOW_W = 300
+const MIN_WINDOW_H = 300
+let resizeRafId: number | null = null
+
+function startResize(e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  const startX = e.screenX
+  const startY = e.screenY
+
+  chatWindow.innerSize().then(async (size) => {
+    const sf = await chatWindow.scaleFactor()
+    const startW = size.width / sf
+    const startH = size.height / sf
+
+    const applySize = (me: MouseEvent) => {
+      const w = Math.max(MIN_WINDOW_W, startW + (me.screenX - startX))
+      const h = Math.max(MIN_WINDOW_H, startH + (me.screenY - startY))
+      chatWindow.setSize(new PhysicalSize(Math.round(w * sf), Math.round(h * sf))).catch(() => {})
+    }
+
+    const onMove = (me: MouseEvent) => {
+      if (resizeRafId !== null) return
+      resizeRafId = requestAnimationFrame(() => {
+        resizeRafId = null
+        applySize(me)
+      })
+    }
+    const onUp = () => {
+      if (resizeRafId !== null) {
+        cancelAnimationFrame(resizeRafId)
+        resizeRafId = null
+      }
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      applySize(e)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
+}
 
 async function toggleRecording() {
   if (recording.value) {
@@ -619,6 +662,9 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- 右下角拉伸手柄（无边框窗口无系统拉伸边框） -->
+    <div class="chat-resize-handle" @mousedown="startResize" title="拖拽调整大小"></div>
   </div>
 </template>
 
@@ -635,6 +681,37 @@ onUnmounted(() => {
   font-size: 13px;
   color: #333;
   user-select: none;
+}
+
+.chat-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 100;
+  background: linear-gradient(
+    135deg,
+    transparent 0%,
+    transparent 50%,
+    rgba(120, 120, 120, 0.45) 50%,
+    rgba(120, 120, 120, 0.45) 60%,
+    transparent 60%
+  );
+  border-top-left-radius: 8px;
+  transition: background 0.15s;
+}
+
+.chat-resize-handle:hover {
+  background: linear-gradient(
+    135deg,
+    transparent 0%,
+    transparent 50%,
+    rgba(255, 107, 157, 0.7) 50%,
+    rgba(255, 107, 157, 0.7) 60%,
+    transparent 60%
+  );
 }
 
 .chat-bubble {
