@@ -775,35 +775,39 @@ onUnmounted(() => {
 
 .pet-error {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1000;
-  background: rgba(244, 67, 54, 0.95);
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  background: rgba(244, 67, 54, 0.92);
   color: white;
-  font-size: 11px;
-  padding: 6px 30px 6px 10px;
-  text-align: center;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  animation: fadeIn 0.25s ease;
 }
 
 .pet-error-text {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  flex: 1;
+  word-break: break-word;
 }
 
 .pet-error-dismiss {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
+  background: rgba(255, 255, 255, 0.2);
   border: none;
   color: white;
-  font-size: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
   cursor: pointer;
-  padding: 4px;
+  font-size: 12px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pet-column {
@@ -879,30 +883,32 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 5px 10px 7px;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.92);
   border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  z-index: 30;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   white-space: nowrap;
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+  z-index: 200;
 }
 
 .hover-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 10px;
-  color: #666;
+  gap: 3px;
+  min-width: 48px;
 }
 
 .hover-pet-name {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   color: #333;
+  line-height: 1.2;
 }
 
 .hover-lh-score {
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .hover-mood-text {
@@ -912,53 +918,48 @@ onUnmounted(() => {
 }
 
 .hover-mood-bar {
-  width: 100px;
   height: 3px;
-  background: #eee;
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 2px;
   overflow: hidden;
+  width: 56px;
 }
 
 .hover-mood-fill {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.5s ease;
+  transition: width 0.5s ease, background 0.5s ease;
 }
 
 .hover-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
 }
 
 .hover-actions button {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border: none;
-  background: #f5f5f5;
+  background: transparent;
   border-radius: 8px;
-  cursor: pointer;
   font-size: 14px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, transform 0.15s;
+  transition: all 0.15s;
+  padding: 0;
 }
 
 .hover-actions button:hover {
-  background: #eee;
-  transform: scale(1.1);
+  background: rgba(255, 107, 157, 0.1);
+  transform: scale(1.15);
 }
 
-.toolbar-fade-enter-active,
-.toolbar-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
+.toolbar-fade-enter-active { transition: all 0.2s ease; }
+.toolbar-fade-leave-active { transition: all 0.15s ease; }
 .toolbar-fade-enter-from,
-.toolbar-fade-leave-to {
-  opacity: 0;
-  transform: translateX(-50%) translateY(-6px);
-}
+.toolbar-fade-leave-to { opacity: 0; transform: translateY(-4px); }
 
 .screenshot-analysis-loading {
   position: fixed;
