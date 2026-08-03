@@ -760,8 +760,17 @@ onUnmounted(() => {
 .pet-app {
   width: 100vw;
   height: 100vh;
-  position: relative;
-  overflow: hidden;
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: #333;
+  user-select: none;
 }
 
 .pet-error {
@@ -894,6 +903,12 @@ onUnmounted(() => {
 
 .hover-lh-score {
   font-weight: 700;
+}
+
+.hover-mood-text {
+  font-size: 10px;
+  color: #888;
+  line-height: 1.2;
 }
 
 .hover-mood-bar {
