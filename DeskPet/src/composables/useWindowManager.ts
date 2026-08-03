@@ -23,7 +23,9 @@ export function useWindowManager(deps: WindowManagerDeps) {
         height: 600,
         minWidth: 320,
         minHeight: 400,
-        resizable: true,
+        // resizable: false —— 同对话窗口：禁用系统边缘拖拽，resize 由
+        // Settings.vue 内透明热区（卡片边缘）setSize API 驱动
+        resizable: false,
         transparent: true,
         decorations: false,
         alwaysOnTop: true,

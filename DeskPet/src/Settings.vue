@@ -3,7 +3,7 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { LogicalPosition } from '@tauri-apps/api/dpi'
+import { LogicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { appDataDir } from '@tauri-apps/api/path'
 import { ref, computed, onMounted, watch } from 'vue'
@@ -631,6 +631,68 @@ async function closeWindow() {
   await win.close()
 }
 
+// ===== 窗口 resize：拖动卡片边缘（透明窗口看不见系统边缘，热区放在窗口四周）=====
+const MIN_WINDOW_W = 320
+const MIN_WINDOW_H = 400
+
+function startResize(dir: string, e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  const win = getCurrentWindow()
+  const startX = e.screenX
+  const startY = e.screenY
+
+  win.outerPosition().then(async (pos) => {
+    const sf = await win.scaleFactor()
+    const startLeft = pos.x / sf
+    const startTop = pos.y / sf
+    const size = await win.innerSize()
+    const startW = size.width / sf
+    const startH = size.height / sf
+
+    let lastX = startX
+    let lastY = startY
+    let rafId: number | null = null
+
+    const apply = (mx: number, my: number) => {
+      const dx = mx - startX
+      const dy = my - startY
+      let left = startLeft
+      let top = startTop
+      let w = startW
+      let h = startH
+      if (dir.includes('e')) w = startW + dx
+      if (dir.includes('s')) h = startH + dy
+      if (dir.includes('w')) { w = startW - dx; left = startLeft + dx }
+      if (dir.includes('n')) { h = startH - dy; top = startTop + dy }
+      if (w < MIN_WINDOW_W) { w = MIN_WINDOW_W; if (dir.includes('w')) left = startLeft + startW - MIN_WINDOW_W }
+      if (h < MIN_WINDOW_H) { h = MIN_WINDOW_H; if (dir.includes('n')) top = startTop + startH - MIN_WINDOW_H }
+      win.setPosition(new LogicalPosition(Math.round(left), Math.round(top))).catch(() => {})
+      win.setSize(new PhysicalSize(Math.round(w * sf), Math.round(h * sf))).catch(() => {})
+    }
+
+    const onMove = (me: MouseEvent) => {
+      lastX = me.screenX
+      lastY = me.screenY
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        apply(lastX, lastY)
+      })
+    }
+    const onUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
+}
+
 async function loadDiary() {
   try {
     const result = await invoke<{ entries: Array<{ id: string; entryDate: string; summary: string }>; total: number }>('get_diary_entries')
@@ -1059,6 +1121,18 @@ async function renameGhost() {
         <div v-if="success" class="success-msg">{{ success }}</div>
       </div>
     </div>
+
+    <!-- 四周透明 resize 热区：鼠标放卡片边缘变 resize 光标，拖动调整窗口大小（卡片同步跟随） -->
+    <div class="settings-resize-frame">
+      <div class="srs srs-n" @mousedown="startResize('n', $event)"></div>
+      <div class="srs srs-s" @mousedown="startResize('s', $event)"></div>
+      <div class="srs srs-e" @mousedown="startResize('e', $event)"></div>
+      <div class="srs srs-w" @mousedown="startResize('w', $event)"></div>
+      <div class="srs srs-ne" @mousedown="startResize('ne', $event)"></div>
+      <div class="srs srs-nw" @mousedown="startResize('nw', $event)"></div>
+      <div class="srs srs-se" @mousedown="startResize('se', $event)"></div>
+      <div class="srs srs-sw" @mousedown="startResize('sw', $event)"></div>
+    </div>
   </div>
 </template>
 
@@ -1069,7 +1143,6 @@ async function renameGhost() {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
   box-sizing: border-box;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 13px;
@@ -1082,13 +1155,38 @@ async function renameGhost() {
   backdrop-filter: blur(16px);
   border-radius: 20px;
   box-shadow: 0 2px 16px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  width: 100%;
-  max-width: 360px;
-  max-height: calc(100vh - 32px);
+  width: calc(100% - 48px);
+  height: calc(100% - 48px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  margin: 24px;
 }
+
+/* 四周透明 resize 热区（无背景无半透明像素，只提供光标与拖拽） */
+.settings-resize-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+}
+
+.settings-resize-frame .srs {
+  position: absolute;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.srs-n, .srs-s { left: 0; right: 0; height: 24px; }
+.srs-e, .srs-w { top: 0; bottom: 0; width: 24px; }
+.srs-n { top: 0; cursor: n-resize; }
+.srs-s { bottom: 0; cursor: s-resize; }
+.srs-e { right: 0; cursor: e-resize; }
+.srs-w { left: 0; cursor: w-resize; }
+.srs-ne { top: 0; right: 0; width: 28px; height: 28px; cursor: ne-resize; }
+.srs-nw { top: 0; left: 0; width: 28px; height: 28px; cursor: nw-resize; }
+.srs-se { bottom: 0; right: 0; width: 28px; height: 28px; cursor: se-resize; }
+.srs-sw { bottom: 0; left: 0; width: 28px; height: 28px; cursor: sw-resize; }
 
 .settings-header {
   display: flex;
