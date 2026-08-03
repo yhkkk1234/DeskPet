@@ -280,6 +280,9 @@ async function checkAndNotifyAchievements() {
     const result = await invoke<{ newAchievements: Array<{ key: string; name: string; description: string }> }>('check_achievements')
     if (result.newAchievements && result.newAchievements.length > 0) {
       for (const a of result.newAchievements) {
+        // 主窗口宠物上方弹气泡（仪式感）+ happy 动画 + 记录进聊天历史
+        showSpeechBubble(`🏆 ${a.name}！${a.description}`)
+        playOneShot('happy', 1500)
         pushSystemMessage(`🏆 成就解锁: ${a.name} — ${a.description}`)
       }
     }

@@ -1195,18 +1195,38 @@ pub fn get_achievements(state: State<'_, AppState>) -> Result<serde_json::Value,
     let db = db_guard.as_ref().ok_or("数据库未初始化")?;
 
     let rows = db.get_achievements(&ghost_id)?;
-    let achievements: Vec<serde_json::Value> = rows.iter().map(|r| {
-        serde_json::json!({
-            "key": r.achievement_key,
-            "name": get_achievement_name(&r.achievement_key),
-            "description": get_achievement_desc(&r.achievement_key),
-            "unlockedAt": r.unlocked_at,
+    let unlocked_at: std::collections::HashMap<&str, &str> = rows
+        .iter()
+        .map(|r| (r.achievement_key.as_str(), r.unlocked_at.as_str()))
+        .collect();
+
+    // 全部成就定义（含未解锁，前端展示灰色占位）
+    let all_keys = [
+        "first_chat",
+        "chat_10",
+        "chat_100",
+        "love_50",
+        "love_80",
+        "transfer_1",
+        "dream_first",
+    ];
+    let achievements: Vec<serde_json::Value> = all_keys
+        .iter()
+        .map(|key| {
+            serde_json::json!({
+                "key": key,
+                "name": get_achievement_name(key),
+                "description": get_achievement_desc(key),
+                "unlocked": unlocked_at.contains_key(*key),
+                "unlockedAt": unlocked_at.get(*key).copied().unwrap_or(""),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::json!({
         "achievements": achievements,
         "total": achievements.len(),
+        "unlockedCount": achievements.iter().filter(|a| a["unlocked"].as_bool().unwrap_or(false)).count(),
     }))
 }
 

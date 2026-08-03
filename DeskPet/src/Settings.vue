@@ -47,6 +47,7 @@ const ttsVoice = ref('zh-CN-XiaoxiaoNeural')
 const answeringMode = ref<'Companion' | 'Assistant'>('Companion')
 const diaryEntries = ref<Array<{ id: string; entryDate: string; summary: string }>>([])
 const diaryExpanded = ref<Record<string, boolean>>({})
+const achievements = ref<Array<{ key: string; name: string; description: string; unlocked: boolean; unlockedAt: string }>>([])
 const renameInput = ref('')
 const renaming = ref(false)
 const personaText = ref('')
@@ -205,6 +206,7 @@ onMounted(async () => {
   await loadLocalStorage()
   fetchGhostStatus()
   loadDiary()
+  loadAchievements()
   // 定位到桌宠附近，避免在默认位置（左上角）闪现
   await positionNearPet()
   // 加载完成后再显示，避免窗口先在默认位置闪现再加载内容
@@ -618,6 +620,15 @@ async function loadDiary() {
   }
 }
 
+async function loadAchievements() {
+  try {
+    const result = await invoke<{ achievements: Array<{ key: string; name: string; description: string; unlocked: boolean; unlockedAt: string }>; unlockedCount: number }>('get_achievements')
+    achievements.value = result.achievements || []
+  } catch (e) {
+    console.warn('加载成就失败:', e)
+  }
+}
+
 function toggleDiaryEntry(id: string) {
   diaryExpanded.value[id] = !diaryExpanded.value[id]
 }
@@ -905,6 +916,29 @@ async function renameGhost() {
             </div>
           </div>
           <EmotionTimeline />
+        </div>
+
+        <!-- Achievements -->
+        <div v-if="ghost" class="settings-section">
+          <div class="settings-section-title">🏆 成就</div>
+          <div class="achievements-progress">
+            已解锁 {{ achievements.filter(a => a.unlocked).length }} / {{ achievements.length }}
+          </div>
+          <div class="achievement-list">
+            <div
+              v-for="a in achievements"
+              :key="a.key"
+              class="achievement-card"
+              :class="{ 'ach-locked': !a.unlocked }"
+            >
+              <span class="ach-icon">{{ a.unlocked ? '🏆' : '🔒' }}</span>
+              <div class="ach-info">
+                <div class="ach-name">{{ a.unlocked ? a.name : '？？？' }}</div>
+                <div class="ach-desc">{{ a.unlocked ? a.description : '继续互动解锁' }}</div>
+                <div v-if="a.unlocked && a.unlockedAt" class="ach-time">{{ a.unlockedAt }}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Diary -->
@@ -1829,6 +1863,78 @@ async function renameGhost() {
   padding: 20px 12px;
   color: #999;
   font-size: 12px;
+}
+
+/* 成就 */
+.achievements-progress {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  background: #f7f3ff;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.achievement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.achievement-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #fdf6e3;
+  border: 1px solid #f0e0b8;
+  border-radius: 10px;
+  transition: all 0.15s;
+}
+
+.achievement-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.achievement-card.ach-locked {
+  background: #fafafa;
+  border: 1px dashed #ddd;
+  opacity: 0.75;
+}
+
+.ach-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.ach-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ach-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.ach-locked .ach-name {
+  color: #bbb;
+  letter-spacing: 2px;
+}
+
+.ach-desc {
+  font-size: 11px;
+  color: #999;
+  margin-top: 1px;
+}
+
+.ach-time {
+  font-size: 10px;
+  color: #ccc;
+  margin-top: 2px;
 }
 
 .diary-hint {
