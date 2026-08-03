@@ -713,16 +713,17 @@ onUnmounted(() => {
 
 .chat-bubble {
   position: relative;
-  width: calc(100% - 24px);
-  height: calc(100% - 24px);
+  width: calc(100% - 48px);
+  height: calc(100% - 48px);
   background: rgba(255, 255, 255, 0.97);
   backdrop-filter: blur(16px);
   border-radius: 20px;
+  /* 阴影扩散 24px：边距 24px 让渐变完整淡出到窗口边缘，避免硬切 */
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  margin: 12px;
+  margin: 24px;
 }
 
 /* 四周透明 resize 热区（无背景无半透明像素，只提供光标与拖拽） */
@@ -739,16 +740,16 @@ onUnmounted(() => {
   background: transparent;
 }
 
-.rs-n, .rs-s { left: 0; right: 0; height: 12px; }
-.rs-e, .rs-w { top: 0; bottom: 0; width: 12px; }
+.rs-n, .rs-s { left: 0; right: 0; height: 24px; }
+.rs-e, .rs-w { top: 0; bottom: 0; width: 24px; }
 .rs-n { top: 0; cursor: n-resize; }
 .rs-s { bottom: 0; cursor: s-resize; }
 .rs-e { right: 0; cursor: e-resize; }
 .rs-w { left: 0; cursor: w-resize; }
-.rs-ne { top: 0; right: 0; width: 16px; height: 16px; cursor: ne-resize; }
-.rs-nw { top: 0; left: 0; width: 16px; height: 16px; cursor: nw-resize; }
-.rs-se { bottom: 0; right: 0; width: 16px; height: 16px; cursor: se-resize; }
-.rs-sw { bottom: 0; left: 0; width: 16px; height: 16px; cursor: sw-resize; }
+.rs-ne { top: 0; right: 0; width: 28px; height: 28px; cursor: ne-resize; }
+.rs-nw { top: 0; left: 0; width: 28px; height: 28px; cursor: nw-resize; }
+.rs-se { bottom: 0; right: 0; width: 28px; height: 28px; cursor: se-resize; }
+.rs-sw { bottom: 0; left: 0; width: 28px; height: 28px; cursor: sw-resize; }
 
 /* Bubble tail - left (window on right of pet) */
 .chat-bubble.tail-left::before {
