@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { LogicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
+import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { open } from '@tauri-apps/plugin-dialog'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import BubbleMessage from './components/BubbleMessage.vue'
@@ -57,48 +57,10 @@ const transcribing = ref(false)
 const recordingSeconds = ref(0)
 let recordingTimer: ReturnType<typeof setInterval> | null = null
 
-// ===== 窗口右下角拉伸手柄（无边框窗口无系统拉伸边框）=====
-const MIN_WINDOW_W = 300
-const MIN_WINDOW_H = 300
-let resizeRafId: number | null = null
-
-function startResize(e: MouseEvent) {
-  e.preventDefault()
-  e.stopPropagation()
-  const startX = e.screenX
-  const startY = e.screenY
-
-  chatWindow.innerSize().then(async (size) => {
-    const sf = await chatWindow.scaleFactor()
-    const startW = size.width / sf
-    const startH = size.height / sf
-
-    const applySize = (me: MouseEvent) => {
-      const w = Math.max(MIN_WINDOW_W, startW + (me.screenX - startX))
-      const h = Math.max(MIN_WINDOW_H, startH + (me.screenY - startY))
-      chatWindow.setSize(new PhysicalSize(Math.round(w * sf), Math.round(h * sf))).catch(() => {})
-    }
-
-    const onMove = (me: MouseEvent) => {
-      if (resizeRafId !== null) return
-      resizeRafId = requestAnimationFrame(() => {
-        resizeRafId = null
-        applySize(me)
-      })
-    }
-    const onUp = () => {
-      if (resizeRafId !== null) {
-        cancelAnimationFrame(resizeRafId)
-        resizeRafId = null
-      }
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-      applySize(e)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  })
-}
+// ===== 窗口拉伸说明 =====
+// 窗口 resizable:true 但 decorations:false（无边框），Windows 下无边框窗口
+// 仍保留系统边缘拉伸能力（WS_THICKFRAME），直接拖窗口边缘即可调整大小。
+// 注：不提供自定义拉伸手柄——透明窗口上任何半透明像素都会显示为灰色雾霾。
 
 async function toggleRecording() {
   if (recording.value) {
@@ -662,9 +624,6 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
-
-    <!-- 右下角拉伸手柄（无边框窗口无系统拉伸边框） -->
-    <div class="chat-resize-handle" @mousedown="startResize" title="拖拽调整大小"></div>
   </div>
 </template>
 
@@ -683,44 +642,16 @@ onUnmounted(() => {
   user-select: none;
 }
 
-.chat-resize-handle {
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  width: 14px;
-  height: 14px;
-  cursor: nwse-resize;
-  z-index: 100;
-  background: transparent;
-}
-
-.chat-resize-handle::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid rgba(0, 0, 0, 0.12);
-  border-bottom: 2px solid rgba(0, 0, 0, 0.12);
-  border-radius: 2px;
-  transition: border-color 0.15s;
-}
-
-.chat-resize-handle:hover::after {
-  border-color: rgba(255, 107, 157, 0.7);
-}
-
 .chat-bubble {
   position: relative;
   width: calc(100% - 16px);
   height: calc(100% - 16px);
   max-width: 520px;
   max-height: 720px;
-  background: rgba(255, 255, 255, 0.97);
-  backdrop-filter: blur(16px);
+  /* 纯白背景：透明窗口下任何半透明像素（box-shadow/backdrop-filter/alpha 背景）
+     都会显示为灰色雾霾，所以全部移除，窗口保持完全透明只有对话界面可见 */
+  background: #fff;
   border-radius: 20px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -737,8 +668,8 @@ onUnmounted(() => {
   height: 0;
   border-top: 9px solid transparent;
   border-bottom: 9px solid transparent;
-  border-right: 14px solid rgba(255, 255, 255, 0.97);
-  filter: drop-shadow(-1px 0 2px rgba(0, 0, 0, 0.06));
+  border-right: 14px solid #fff;
+  
   z-index: 1;
 }
 
@@ -752,8 +683,8 @@ onUnmounted(() => {
   height: 0;
   border-top: 9px solid transparent;
   border-bottom: 9px solid transparent;
-  border-left: 14px solid rgba(255, 255, 255, 0.97);
-  filter: drop-shadow(1px 0 2px rgba(0, 0, 0, 0.06));
+  border-left: 14px solid #fff;
+  
   z-index: 1;
 }
 
