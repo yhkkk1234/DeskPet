@@ -53,7 +53,7 @@ fn restore_impression_from_db(ghost: &mut Ghost, state: &State<'_, AppState>) {
 
     if let Ok(experiences) = db.get_experiences(&ghost.ghost_id) {
         if !experiences.is_empty() {
-            eprintln!("[Ghost恢复] 从DB恢复{}条经验", experiences.len());
+            tracing::info!("[Ghost恢复] 从DB恢复{}条经验", experiences.len());
         }
     }
 }
@@ -255,14 +255,14 @@ pub async fn transfer_ghost(
                     if let Some(db) = db_guard.as_ref() {
                         for (id, new_summary) in &blurred {
                             if let Err(e) = db.update_long_term_memory_summary(id, new_summary) {
-                                eprintln!("[transfer] AI模糊化保存失败 (id={}): {}", id, e);
+                                tracing::error!("[transfer] AI模糊化保存失败 (id={}): {}", id, e);
                             }
                             ai_blurred_count += 1;
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("[transfer] AI 记忆模糊化失败 (非致命): {}", e);
+                    tracing::error!("[transfer] AI 记忆模糊化失败 (非致命): {}", e);
                 }
             }
         }
@@ -495,7 +495,7 @@ pub async fn curiosity_research(state: State<'_, AppState>) -> Result<serde_json
                 Some("research"),
                 entities_json.as_deref(),
             ) {
-                eprintln!("[curiosity] 保存探索记忆失败: {}", e);
+                tracing::error!("[curiosity] 保存探索记忆失败: {}", e);
             }
         }
     }
@@ -578,7 +578,7 @@ pub async fn generate_dream(state: State<'_, AppState>) -> Result<serde_json::Va
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
             if let Err(e) = db.save_dream(&dream_id, &ghost_id, &dream_summary, memory_snippet.as_deref(), "daydream") {
-                eprintln!("[梦境] 保存失败: {}", e);
+                tracing::error!("[梦境] 保存失败: {}", e);
             }
         }
     }

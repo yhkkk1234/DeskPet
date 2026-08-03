@@ -14,6 +14,11 @@ impl Database {
 
         let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
         conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| format!("设置WAL模式失败: {}", e))?;
+        // rusqlite bundled 默认开启外键检查，但迁移中的 Dreams/Achievements/Diary 表
+        // 外键引用了不存在的 Ghosts 表（ghost 存加密文件，不存 DB）。
+        // 若保持 FK 开启，这三张表的 INSERT 会静默失败（no such table: main.Ghosts）。
+        // 显式关闭，与历史行为一致。
+        conn.execute_batch("PRAGMA foreign_keys=OFF;").map_err(|e| format!("关闭外键检查失败: {}", e))?;
         let mut db = Self { conn };
         db.run_migrations()?;
         Ok(db)
@@ -1082,4 +1087,339 @@ pub struct DocumentKnowledgeRow {
     pub error_message: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> Database {
+        Database::new(":memory:").expect("内存数据库初始化失败")
+    }
+
+    #[test]
+    fn test_migrations_create_all_tables() {
+        let db = test_db();
+        let tables: Vec<String> = db
+            .conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        for expected in [
+            "ChatMessages",
+            "EmotionalEvents",
+            "ShortTermMemories",
+            "LongTermMemories",
+            "MasterImpressions",
+            "ConversationChunks",
+            "Experiences",
+            "AppState",
+            "Dreams",
+            "Achievements",
+            "Diary",
+            "DocumentKnowledge",
+        ] {
+            assert!(tables.contains(&expected.to_string()), "缺少表: {}", expected);
+        }
+    }
+
+    #[test]
+    fn test_app_state_roundtrip() {
+        let db = test_db();
+        assert!(db.load_last_interaction().is_none());
+        db.save_last_interaction("2026-08-03 12:00:00".into()).unwrap();
+        assert_eq!(db.load_last_interaction().unwrap(), "2026-08-03 12:00:00");
+    }
+
+    #[test]
+    fn test_short_term_memory_crud() {
+        let db = test_db();
+        db.save_short_term_memory("stm1", "g1", "低重要性记忆", 0.2, 1.0, 0.5, Some("闲聊"), Some("实体A"))
+            .unwrap();
+        db.save_short_term_memory("stm2", "g1", "高重要性记忆", 0.9, 0.8, -0.3, None, None)
+            .unwrap();
+        db.save_short_term_memory("stm3", "g2", "其他灵魂的记忆", 0.5, 0.5, 0.0, None, None)
+            .unwrap();
+
+        let rows = db.get_short_term_memories("g1", 10).unwrap();
+        assert_eq!(rows.len(), 2);
+        // 按 Importance DESC 排序：高重要性在前
+        assert_eq!(rows[0].id, "stm2");
+        assert_eq!(rows[0].summary, "高重要性记忆");
+        assert_eq!(rows[1].id, "stm1");
+
+        assert_eq!(db.count_short_term_memories("g1").unwrap(), 2);
+
+        db.update_stm_accessibility("stm2", 0.1).unwrap();
+        let updated = db.get_short_term_memories("g1", 10).unwrap();
+        assert!((updated[0].accessibility - 0.1).abs() < 1e-9);
+
+        db.delete_short_term_memory("stm1").unwrap();
+        assert_eq!(db.count_short_term_memories("g1").unwrap(), 1);
+
+        assert_eq!(db.clear_short_term_memories("g1").unwrap(), 1);
+        assert_eq!(db.count_short_term_memories("g1").unwrap(), 0);
+        // g2 不受影响
+        assert_eq!(db.count_short_term_memories("g2").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_long_term_memory_crud() {
+        let db = test_db();
+        db.save_long_term_memory("ltm1", "g1", "核心记忆：第一次见面", 1.0, true, Some("FirstConversation"), Some("那天阳光很好"))
+            .unwrap();
+        db.save_long_term_memory("ltm2", "g1", "普通记忆", 0.4, false, None, None)
+            .unwrap();
+
+        let all = db.get_long_term_memories("g1", 10).unwrap();
+        assert_eq!(all.len(), 2);
+        // Importance DESC：核心记忆在前
+        assert_eq!(all[0].id, "ltm1");
+        assert!(all[0].is_core_memory);
+        assert_eq!(all[0].event_type.as_deref(), Some("FirstConversation"));
+
+        let core = db.get_core_memories("g1").unwrap();
+        assert_eq!(core.len(), 1);
+        assert_eq!(core[0].id, "ltm1");
+
+        db.update_long_term_memory_summary("ltm2", "模糊后的记忆").unwrap();
+        let updated = db.get_long_term_memories("g1", 10).unwrap();
+        assert_eq!(updated[1].summary, "模糊后的记忆");
+    }
+
+    #[test]
+    fn test_blur_core_memories_for_transfer() {
+        let db = test_db();
+        db.save_long_term_memory("ltm1", "g1", "绝对重要的事", 1.0, true, None, None)
+            .unwrap();
+        // generation=2 → 模糊量 0.1 → importance 1.0 → 0.9（文本模糊由 AI 层完成，此处只降数值）
+        let blurred = db.blur_core_memories_for_transfer("g1", 2).unwrap();
+        assert_eq!(blurred, 1);
+        let rows = db.get_core_memories("g1").unwrap();
+        assert!((rows[0].importance - 0.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_experience_crud() {
+        let db = test_db();
+        db.save_experience("exp1", "g1", "绘画技巧", "学会了用AI画图", "对话总结", 0.5, Some("ltm1"))
+            .unwrap();
+        db.save_experience("exp2", "g1", "编程知识", "理解了Rust所有权", "对话总结", 0.8, None)
+            .unwrap();
+
+        let rows = db.get_experiences("g1").unwrap();
+        assert_eq!(rows.len(), 2);
+        // Proficiency DESC
+        assert_eq!(rows[0].id, "exp2");
+        assert_eq!(rows[1].name, "绘画技巧");
+        assert_eq!(rows[1].source_memory_id.as_deref(), Some("ltm1"));
+
+        db.update_experience_proficiency("exp1", 0.95).unwrap();
+        let rows = db.get_experiences("g1").unwrap();
+        assert_eq!(rows[0].id, "exp1");
+    }
+
+    #[test]
+    fn test_impression_upsert() {
+        let db = test_db();
+        assert!(db.load_impression("g1").is_none());
+
+        db.save_impression("g1", 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 15.0, "片段1").unwrap();
+        let row = db.load_impression("g1").unwrap();
+        assert_eq!(row.openness_score, 1.0);
+        assert_eq!(row.overall_affinity, 15.0);
+        assert_eq!(row.snippets.as_deref(), Some("片段1"));
+
+        // 再次保存同一 ghost 应更新而非新增（INSERT OR REPLACE + COALESCE Id）
+        db.save_impression("g1", 7.0, 0.0, 0.0, 0.0, 0.0, 0.0, 30.0, "片段2").unwrap();
+        let row = db.load_impression("g1").unwrap();
+        assert_eq!(row.openness_score, 7.0);
+        assert_eq!(row.snippets.as_deref(), Some("片段2"));
+        let count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM MasterImpressions WHERE GhostId='g1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_emotional_event_crud() {
+        let db = test_db();
+        db.save_emotional_event("ev1", "g1", "UserPraisedPet", 0.6, 3.0, 0.0, Some("夸奖"))
+            .unwrap();
+        db.save_emotional_event("ev2", "g1", "UserGotAngry", 0.5, -2.0, 0.0, None)
+            .unwrap();
+        db.save_emotional_event("ev3", "g2", "NormalChat", 0.3, 1.0, 0.0, None)
+            .unwrap();
+
+        assert_eq!(db.count_emotional_events("g1").unwrap(), 2);
+        let rows = db.load_emotional_events("g1", 10).unwrap();
+        assert_eq!(rows.len(), 2);
+        let by_id = |id: &str| rows.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(by_id("ev1").event_type, "UserPraisedPet");
+        assert_eq!(by_id("ev1").description.as_deref(), Some("夸奖"));
+        assert_eq!(by_id("ev2").love_hate_delta, -2.0);
+    }
+
+    #[test]
+    fn test_chat_message_crud() {
+        let db = test_db();
+        // 全部显式时间戳，避免 datetime('now') 秒精度导致同秒排序不稳定
+        db.save_chat_message_with_ts("m1", "g1", "user", "你好", Some("2026-08-03 09:00:00.000"))
+            .unwrap();
+        db.save_chat_message_with_ts("m2", "g1", "assistant", "你好呀", Some("2026-08-03 09:00:01.000"))
+            .unwrap();
+        db.save_chat_message_with_ts("m3", "g1", "user", "第二条", Some("2026-08-03 09:00:02.000"))
+            .unwrap();
+
+        let rows = db.load_chat_history("g1", 10).unwrap();
+        assert_eq!(rows.len(), 3);
+        // 时间正序：m1 → m2 → m3
+        assert_eq!(rows[0].id, "m1");
+        assert_eq!(rows[1].id, "m2");
+        assert_eq!(rows[2].id, "m3");
+
+        assert_eq!(db.count_chat_messages("g1").unwrap(), 3);
+
+        // 删除 system 消息
+        db.save_chat_message("m4", "g1", "system", "灵魂已恢复").unwrap();
+        let deleted = db.delete_system_messages_like("%灵魂已恢复%").unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(db.count_chat_messages("g1").unwrap(), 3);
+
+        db.clear_chat_history("g1").unwrap();
+        assert_eq!(db.count_chat_messages("g1").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_repair_chat_history_order() {
+        let mut db = test_db();
+        // 同一秒内 user/assistant 交错保存（旧版本秒精度 bug 场景）
+        db.save_chat_message_with_ts("a1", "g1", "assistant", "回复1", Some("2026-08-03 09:00:00"))
+            .unwrap();
+        db.save_chat_message_with_ts("u1", "g1", "user", "问题1", Some("2026-08-03 09:00:00"))
+            .unwrap();
+        db.save_chat_message_with_ts("a2", "g1", "assistant", "回复2", Some("2026-08-03 09:00:00"))
+            .unwrap();
+
+        let repaired = db.repair_chat_history_order().unwrap();
+        assert_eq!(repaired, 3);
+
+        let rows = db.load_chat_history("g1", 10).unwrap();
+        // 修复后应为 user → assistant → assistant
+        assert_eq!(rows[0].role, "user");
+        assert_eq!(rows[1].role, "assistant");
+        assert_eq!(rows[2].role, "assistant");
+        // 时间戳带毫秒偏移（已修复为高精度）
+        assert!(rows[0].created_at.contains('.'));
+    }
+
+    #[test]
+    fn test_dream_crud() {
+        let db = test_db();
+        db.save_dream("d1", "g1", "梦见了一片草原", Some("记忆片段"), "peaceful")
+            .unwrap();
+        db.save_dream("d2", "g1", "梦见主人带我散步", None, "adventure").unwrap();
+
+        assert_eq!(db.count_dreams("g1").unwrap(), 2);
+        let rows = db.get_recent_dreams("g1", 10).unwrap();
+        assert_eq!(rows.len(), 2);
+        let by_id = |id: &str| rows.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(by_id("d1").memory_snippet.as_deref(), Some("记忆片段"));
+        assert_eq!(by_id("d1").dream_type, "peaceful");
+        assert_eq!(by_id("d2").memory_snippet, None);
+    }
+
+    #[test]
+    fn test_achievement_roundtrip() {
+        let db = test_db();
+        assert!(db.save_achievement("ach1", "g1", "first_chat").unwrap());
+        // 重复解锁返回 false（INSERT OR IGNORE）
+        assert!(!db.save_achievement("ach2", "g1", "first_chat").unwrap());
+        db.save_achievement("ach3", "g1", "love_50").unwrap();
+
+        let rows = db.get_achievements("g1").unwrap();
+        assert_eq!(rows.len(), 2);
+        let keys: Vec<&str> = rows.iter().map(|r| r.achievement_key.as_str()).collect();
+        assert!(keys.contains(&"first_chat"));
+        assert!(keys.contains(&"love_50"));
+    }
+
+    #[test]
+    fn test_diary_crud() {
+        let db = test_db();
+        db.save_diary("dy1", "g1", "今天主人夸我了", "2026-08-03").unwrap();
+        db.save_diary("dy2", "g1", "今天主人没理我", "2026-08-04").unwrap();
+
+        let entries = db.get_diary_entries("g1", 10).unwrap();
+        assert_eq!(entries.len(), 2);
+        let summaries: Vec<&str> = entries.iter().map(|r| r.summary.as_str()).collect();
+        assert!(summaries.contains(&"今天主人夸我了"));
+        assert!(summaries.contains(&"今天主人没理我"));
+    }
+
+    #[test]
+    fn test_document_crud() {
+        let db = test_db();
+        db.save_document("doc1", "小说《流浪地球》", "C:/books/流浪地球.txt", "txt", 1000, "全文内容……")
+            .unwrap();
+        db.save_document("doc2", "论文", "C:/books/paper.docx", "docx", 500, "论文全文")
+            .unwrap();
+
+        let list = db.get_document_list().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].import_status, "summarizing");
+        assert!(list[0].summary_json.is_none());
+        assert!(list[0].full_text.is_none());
+
+        // 摘要完成 → ready
+        db.update_document_summary("doc1", r#"{"chapters":[]}"#).unwrap();
+        db.update_document_status("doc2", "failed", Some("解析失败")).unwrap();
+
+        let ready = db.get_ready_documents().unwrap();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].id, "doc1");
+
+        let detail = db.get_document_by_id("doc1").unwrap();
+        assert_eq!(detail.full_text.as_deref(), Some("全文内容……"));
+        assert_eq!(detail.summary_json.as_deref(), Some(r#"{"chapters":[]}"#));
+
+        db.delete_document("doc1").unwrap();
+        assert_eq!(db.get_document_list().unwrap().len(), 1);
+        assert!(db.get_document_by_id("doc1").is_err());
+    }
+
+    #[test]
+    fn test_conversation_chunk_crud() {
+        let db = test_db();
+        db.save_conversation_chunk("ch1", "g1", "讨论了项目架构", 0.7, Some(1200))
+            .unwrap();
+        db.save_conversation_chunk("ch2", "g1", "闲聊", 0.2, None).unwrap();
+
+        let rows = db.get_conversation_chunks("g1", 10).unwrap();
+        assert_eq!(rows.len(), 2);
+        let by_id = |id: &str| rows.iter().find(|r| r.id == id).unwrap();
+        assert!(by_id("ch1").end_time.is_none());
+        assert_eq!(by_id("ch2").importance, 0.2);
+
+        db.close_conversation_chunk("ch2").unwrap();
+        let rows = db.get_conversation_chunks("g1", 10).unwrap();
+        assert!(rows.iter().find(|r| r.id == "ch2").unwrap().end_time.is_some());
+        assert!(rows.iter().find(|r| r.id == "ch1").unwrap().end_time.is_none());
+    }
+
+    #[test]
+    fn test_touch_memory_accessed() {
+        let db = test_db();
+        db.save_short_term_memory("stm1", "g1", "记忆", 0.5, 0.5, 0.0, None, None)
+            .unwrap();
+        db.save_long_term_memory("ltm1", "g1", "长期记忆", 0.5, false, None, None)
+            .unwrap();
+        db.touch_memory_accessed(&["stm1"], &["ltm1"]).unwrap();
+        // 不崩溃即通过（LastAccessedAt 更新成功）
+        assert!(db.count_short_term_memories("g1").unwrap() == 1);
+    }
 }

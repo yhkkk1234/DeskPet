@@ -147,7 +147,7 @@ impl MemoryCompressor {
 
         for id in stm_ids {
             if let Err(e) = db.delete_short_term_memory(id) {
-                eprintln!("[记忆压缩] 删除短期记忆失败 (id={}): {}", id, e);
+                tracing::error!("[记忆压缩] 删除短期记忆失败 (id={}): {}", id, e);
             }
         }
 

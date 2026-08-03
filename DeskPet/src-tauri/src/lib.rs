@@ -26,8 +26,41 @@ fn load_tray_icon() -> tauri::image::Image<'static> {
     tauri::image::Image::new_owned(buf, info.width, info.height)
 }
 
+/// 初始化日志：控制台（stderr）+ 文件（%APPDATA%/DeskPet/logs/ 按天滚动）。
+/// 返回的 guard 必须保持存活直到进程退出，否则日志写入会中断。
+fn init_logging() -> tracing_appender::non_blocking::WorkerGuard {
+    use tracing_subscriber::{layer::Layer, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    let dir = crate::data::app_data_dir()
+        .map(|d| d.join("logs"))
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let _ = std::fs::create_dir_all(&dir);
+
+    let file_appender = tracing_appender::rolling::daily(&dir, "deskpet.log");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(filter.clone()),
+        )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_filter(filter),
+        )
+        .init();
+
+    guard
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _log_guard = init_logging();
+
     let app_state = AppState {
         ghost: Mutex::new(None),
         db: Mutex::new(None),

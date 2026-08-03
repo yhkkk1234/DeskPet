@@ -130,7 +130,7 @@ pub async fn refresh_weather_if_stale(cache: &Mutex<WeatherCache>) -> Option<Str
             Some(context)
         }
         Err(e) => {
-            eprintln!("[天气] 刷新失败: {}", e);
+            tracing::error!("[天气] 刷新失败: {}", e);
             let locked = cache.lock().ok()?;
             locked.info.as_ref().map(|w| format_weather_context(w))
         }

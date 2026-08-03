@@ -93,7 +93,7 @@ pub async fn chat_with_pet(
     ).await {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[流式] 首次尝试失败: {}，将重试（非流式）", e);
+            tracing::error!("[流式] 首次尝试失败: {}，将重试（非流式）", e);
             let ai_service = AIService::new({
                 let locked = state.ai_config.lock().map_err(|e| e.to_string())?;
                 locked.as_ref().ok_or("AI 接口未配置")?.clone()
@@ -114,7 +114,7 @@ pub async fn chat_with_pet(
                         generated_image = Some(img_data);
                     }
                     Err(e) => {
-                        eprintln!("[图像生成] 失败: {}", e);
+                        tracing::error!("[图像生成] 失败: {}", e);
                     }
                 }
                 raw_response.replace(marker, "").trim().to_string()
@@ -142,11 +142,11 @@ pub async fn chat_with_pet(
 
             let user_msg_id = uuid::Uuid::new_v4().to_string();
             if let Err(e) = db.save_chat_message_with_ts(&user_msg_id, &ghost.ghost_id, "user", &message, Some(&user_ts)) {
-                eprintln!("[chat] 保存用户消息失败: {}", e);
+                tracing::error!("[chat] 保存用户消息失败: {}", e);
             }
             let pet_msg_id = uuid::Uuid::new_v4().to_string();
             if let Err(e) = db.save_chat_message_with_ts(&pet_msg_id, &ghost.ghost_id, "assistant", &response, Some(&pet_ts)) {
-                eprintln!("[chat] 保存AI回复失败: {}", e);
+                tracing::error!("[chat] 保存AI回复失败: {}", e);
             }
         }
     }
@@ -191,7 +191,7 @@ pub async fn chat_with_pet(
             );
         }
         Err(e) => {
-            eprintln!("[情感分析] 分析失败（不影响对话）: {}", e);
+            tracing::error!("[情感分析] 分析失败（不影响对话）: {}", e);
             event_type_str = "NormalChat".into();
             sentiment_love_hate = 0.0;
             sentiment_snippet = None;
@@ -247,7 +247,7 @@ pub async fn chat_with_pet(
                 Some("chat"),
                 user_entities.as_deref(),
             ) {
-                eprintln!("[chat] 保存用户短期记忆失败: {}", e);
+                tracing::error!("[chat] 保存用户短期记忆失败: {}", e);
             }
 
             let compressed_response = local_compressor::local_compress_message(&response);
@@ -268,7 +268,7 @@ pub async fn chat_with_pet(
                 Some("chat"),
                 response_entities.as_deref(),
             ) {
-                eprintln!("[chat] 保存AI回复短期记忆失败: {}", e);
+                tracing::error!("[chat] 保存AI回复短期记忆失败: {}", e);
             }
 
             if let Ok(experiences) = db.get_experiences(&ghost_snapshot.ghost_id) {
@@ -278,7 +278,7 @@ pub async fn chat_with_pet(
                     if response_lower.contains(&name_lower) {
                         let new_proficiency = (exp.proficiency + 0.01).min(1.0);
                         if let Err(e) = db.update_experience_proficiency(&exp.id, new_proficiency) {
-                            eprintln!("[chat] 更新经验熟练度失败: {}", e);
+                            tracing::error!("[chat] 更新经验熟练度失败: {}", e);
                         }
                     }
                 }
@@ -332,7 +332,7 @@ pub async fn chat_with_pet(
                 let ltm_items = match MemoryCompressor::compress_via_ai(&ai, &stm_data, &ghost_snapshot.name).await {
                     Ok(items) => items,
                     Err(e) => {
-                        eprintln!("[记忆压缩] AI压缩失败（不影响对话）: {}", e);
+                        tracing::error!("[记忆压缩] AI压缩失败（不影响对话）: {}", e);
                         vec![]
                     }
                 };
@@ -352,8 +352,8 @@ pub async fn chat_with_pet(
                     let db_guard = state.db.lock().map_err(|e| e.to_string())?;
                     if let Some(db) = db_guard.as_ref() {
                         match MemoryCompressor::save_compress_results(db, &ghost_id, &ltm_items, &stm_ids, &experiences) {
-                            Ok(result) => eprintln!("[记忆压缩] 完成: {}条长期记忆, {}条经验", result.new_ltm_count, result.new_experience_count),
-                            Err(e) => eprintln!("[记忆压缩] 保存失败: {}", e),
+                            Ok(result) => tracing::info!("[记忆压缩] 完成: {}条长期记忆, {}条经验", result.new_ltm_count, result.new_experience_count),
+                            Err(e) => tracing::error!("[记忆压缩] 保存失败: {}", e),
                         }
                     }
                 }
@@ -374,7 +374,7 @@ pub async fn chat_with_pet(
                 emotional_event.baseline_delta,
                 Some(&truncate(&message, 100)),
             ) {
-                eprintln!("[chat] 保存情感事件失败: {}", e);
+                tracing::error!("[chat] 保存情感事件失败: {}", e);
             }
 
             let imp = &ghost_snapshot.soul.impression;
@@ -390,7 +390,7 @@ pub async fn chat_with_pet(
                 imp.overall_affinity,
                 &snippets_json,
             ) {
-                eprintln!("[chat] 保存印象数据失败: {}", e);
+                tracing::error!("[chat] 保存印象数据失败: {}", e);
             }
 
             let chunk_id = uuid::Uuid::new_v4().to_string();
@@ -402,7 +402,7 @@ pub async fn chat_with_pet(
                 if sentiment_love_hate.abs() > 3.0 { 0.7 } else { 0.4 },
                 None,
             ) {
-                eprintln!("[chat] 保存对话片段失败: {}", e);
+                tracing::error!("[chat] 保存对话片段失败: {}", e);
             }
         }
     }
@@ -602,13 +602,13 @@ pub fn timeline_tick(state: State<'_, AppState>) -> Result<serde_json::Value, St
                     0.0,
                     Some(&description),
                 ) {
-                    eprintln!("[timeline_tick] 保存不活跃事件失败: {}", e);
+                    tracing::error!("[timeline_tick] 保存不活跃事件失败: {}", e);
                 }
             }
         }
     }
     if decayed_experiences > 0 {
-        eprintln!("[经验衰减] {}条经验熟练度已衰减", decayed_experiences);
+        tracing::info!("[经验衰减] {}条经验熟练度已衰减", decayed_experiences);
     }
 
             Ok(serde_json::json!({
@@ -690,7 +690,7 @@ pub fn record_interaction(state: State<'_, AppState>) -> Result<(), String> {
     let db_guard = state.db.lock().map_err(|e| e.to_string())?;
     if let Some(db) = db_guard.as_ref() {
         if let Err(e) = db.save_last_interaction(now) {
-            eprintln!("[record_interaction] 保存last_interaction失败: {}", e);
+            tracing::error!("[record_interaction] 保存last_interaction失败: {}", e);
         }
     }
     
@@ -1141,7 +1141,7 @@ pub async fn generate_diary(state: State<'_, AppState>) -> Result<serde_json::Va
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(db) = db_guard.as_ref() {
             if let Err(e) = db.save_diary(&diary_id, &ghost_id, diary_text.trim(), &today) {
-                eprintln!("[日记] 保存失败: {}", e);
+                tracing::error!("[日记] 保存失败: {}", e);
             }
         }
     }
@@ -1293,7 +1293,7 @@ pub async fn initiative_tick(
                     }
                 }
                 Err(e) => {
-                    eprintln!("[主动搭话] AI生成失败，使用兜底文案: {}", e);
+                    tracing::error!("[主动搭话] AI生成失败，使用兜底文案: {}", e);
                     trigger.fallback_text(love_hate)
                 }
             }

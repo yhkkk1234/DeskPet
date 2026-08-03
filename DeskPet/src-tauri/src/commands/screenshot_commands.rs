@@ -116,11 +116,11 @@ pub async fn analyze_screenshot(
                 "📷 截图".to_string()
             };
             if let Err(e) = db.save_chat_message_with_ts(&user_msg_id, &ghost.ghost_id, "user", &user_content, Some(&user_ts)) {
-                eprintln!("[screenshot] 保存用户截图消息失败: {}", e);
+                tracing::error!("[screenshot] 保存用户截图消息失败: {}", e);
             }
             let pet_msg_id = Uuid::new_v4().to_string();
             if let Err(e) = db.save_chat_message_with_ts(&pet_msg_id, &ghost.ghost_id, "assistant", &response, Some(&pet_ts)) {
-                eprintln!("[screenshot] 保存截图分析消息失败: {}", e);
+                tracing::error!("[screenshot] 保存截图分析消息失败: {}", e);
             }
         }
     }
@@ -191,7 +191,7 @@ pub async fn curiosity_background_analyze(
     let parsed: serde_json::Value = match serde_json::from_str(&json_str) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("[curiosity] JSON解析失败: {}, 原始: {}", e, &json_str[..json_str.len().min(200)]);
+            tracing::error!("[curiosity] JSON解析失败: {}, 原始: {}", e, &json_str[..json_str.len().min(200)]);
             return Ok(serde_json::json!({ "analyzed": false, "reason": "JSON parse error" }));
         }
     };
@@ -234,7 +234,7 @@ pub async fn curiosity_background_analyze(
                     imp.overall_affinity,
                     &snippets_json,
                 ) {
-                    eprintln!("[curiosity] 保存印象数据失败: {}", e);
+                    tracing::error!("[curiosity] 保存印象数据失败: {}", e);
                 }
             }
         }

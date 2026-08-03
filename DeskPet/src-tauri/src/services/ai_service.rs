@@ -32,7 +32,7 @@ impl AIService {
             .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(10))
             .build()
-            .map_err(|e| eprintln!("[AI] 创建HTTP客户端失败，使用默认: {}", e))
+            .map_err(|e| tracing::error!("[AI] 创建HTTP客户端失败，使用默认: {}", e))
             .unwrap_or_else(|_| reqwest::Client::new());
         Self { config, client }
     }
