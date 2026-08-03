@@ -3,16 +3,21 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use hkdf::Hkdf;
+use serde::de::DeserializeOwned;
 use sha2::Sha256;
 
 use crate::data::{app_data_dir, get_or_create_master_key};
 use crate::services::ai_service::AIProviderConfig;
+use crate::services::weather_service::WeatherConfig;
 
 /// AI 配置加密文件魔数（与 ghost 文件 "GF" 区分）。
 const CONFIG_FILE_VERSION: &[u8; 2] = b"AC";
 const CONFIG_FILE_NAME: &str = "ai_config.enc";
+/// 天气配置加密文件。
+const WEATHER_FILE_VERSION: &[u8; 2] = b"WC";
+const WEATHER_FILE_NAME: &str = "weather_config.enc";
 
-/// AI 配置的加密存储（AES-256-GCM，密钥与 ghost 文件共用 master.key）。
+/// 敏感配置的加密存储（AES-256-GCM，密钥与 ghost 文件共用 master.key）。
 ///
 /// 替代将 API Key 明文写入 localStorage 的旧方案：
 /// 敏感配置落盘前加密，前端只保留掩码标记，明文仅存在于后端内存。
@@ -24,6 +29,70 @@ fn derive_config_key(master_key: &[u8; 32], salt: &[u8]) -> [u8; 32] {
     hkdf.expand(b"deskpet-secure-config-key", &mut file_key)
         .expect("HKDF expand should not fail with 32-byte output");
     file_key
+}
+
+/// 加密序列化数据写入文件（魔数 + salt + nonce + ciphertext）。
+fn encrypt_to_file(json: Vec<u8>, path: &std::path::Path, magic: &[u8; 2]) -> Result<(), String> {
+    let master_key = get_or_create_master_key().map_err(|e| e.to_string())?;
+
+    let mut salt = [0u8; 32];
+    use rand::RngCore;
+    OsRng.fill_bytes(&mut salt);
+
+    let file_key = derive_config_key(&master_key, &salt);
+
+    let mut nonce_bytes = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let cipher = Aes256Gcm::new_from_slice(&file_key).map_err(|e| e.to_string())?;
+
+    let ciphertext = cipher
+        .encrypt(nonce, json.as_ref())
+        .map_err(|e| format!("加密失败: {e}"))?;
+
+    let mut file_data = Vec::new();
+    file_data.extend_from_slice(magic);
+    file_data.extend_from_slice(&salt);
+    file_data.extend_from_slice(&nonce_bytes);
+    file_data.extend_from_slice(&ciphertext);
+
+    std::fs::write(path, file_data).map_err(|e| format!("写入配置失败: {e}"))?;
+    Ok(())
+}
+
+/// 解密读取配置文件（不存在返回 None）。
+fn decrypt_from_file<T: DeserializeOwned>(
+    path: &std::path::Path,
+    magic: &[u8; 2],
+) -> Result<Option<T>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let master_key = get_or_create_master_key().map_err(|e| e.to_string())?;
+    let file_data = std::fs::read(path).map_err(|e| format!("读取配置失败: {e}"))?;
+
+    if file_data.len() < 2 + 32 + 12 {
+        return Err("配置文件格式无效".into());
+    }
+    if &file_data[..2] != magic {
+        return Err("配置文件格式无效或版本不受支持".into());
+    }
+
+    let salt = &file_data[2..34];
+    let nonce_bytes = &file_data[34..46];
+    let ciphertext = &file_data[46..];
+
+    let file_key = derive_config_key(&master_key, salt);
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let cipher = Aes256Gcm::new_from_slice(&file_key).map_err(|e| e.to_string())?;
+
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| format!("解密配置失败: {e}"))?;
+
+    serde_json::from_slice(&plaintext).map_err(|e| format!("解析配置失败: {e}"))
 }
 
 impl SecureConfigManager {
@@ -40,68 +109,41 @@ impl SecureConfigManager {
     }
 
     fn save_ai_config_at(config: &AIProviderConfig, path: &std::path::Path) -> Result<(), String> {
-        let master_key = get_or_create_master_key().map_err(|e| e.to_string())?;
-
         let json = serde_json::to_vec(config).map_err(|e| e.to_string())?;
-
-        let mut salt = [0u8; 32];
-        use rand::RngCore;
-        OsRng.fill_bytes(&mut salt);
-
-        let file_key = derive_config_key(&master_key, &salt);
-
-        let mut nonce_bytes = [0u8; 12];
-        OsRng.fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
-
-        let cipher = Aes256Gcm::new_from_slice(&file_key).map_err(|e| e.to_string())?;
-
-        let ciphertext = cipher
-            .encrypt(nonce, json.as_ref())
-            .map_err(|e| format!("加密失败: {e}"))?;
-
-        let mut file_data = Vec::new();
-        file_data.extend_from_slice(CONFIG_FILE_VERSION);
-        file_data.extend_from_slice(&salt);
-        file_data.extend_from_slice(&nonce_bytes);
-        file_data.extend_from_slice(&ciphertext);
-
-        std::fs::write(path, file_data).map_err(|e| format!("写入配置失败: {e}"))?;
-        Ok(())
+        encrypt_to_file(json, path, CONFIG_FILE_VERSION)
     }
 
     fn load_ai_config_at(path: &std::path::Path) -> Result<Option<AIProviderConfig>, String> {
-        if !path.exists() {
-            return Ok(None);
-        }
-
-        let master_key = get_or_create_master_key().map_err(|e| e.to_string())?;
-        let file_data = std::fs::read(path).map_err(|e| format!("读取配置失败: {e}"))?;
-
-        if file_data.len() < 2 + 32 + 12 {
-            return Err("配置文件格式无效".into());
-        }
-        if &file_data[..2] != CONFIG_FILE_VERSION {
-            return Err("配置文件格式无效或版本不受支持".into());
-        }
-
-        let salt = &file_data[2..34];
-        let nonce_bytes = &file_data[34..46];
-        let ciphertext = &file_data[46..];
-
-        let file_key = derive_config_key(&master_key, salt);
-        let nonce = Nonce::from_slice(nonce_bytes);
-        let cipher = Aes256Gcm::new_from_slice(&file_key).map_err(|e| e.to_string())?;
-
-        let plaintext = cipher
-            .decrypt(nonce, ciphertext)
-            .map_err(|e| format!("解密配置失败: {e}"))?;
-
-        serde_json::from_slice(&plaintext).map_err(|e| format!("解析配置失败: {e}"))
+        decrypt_from_file(path, CONFIG_FILE_VERSION)
     }
 
     pub fn has_ai_config() -> bool {
         matches!(Self::load_ai_config(), Ok(Some(_)))
+    }
+
+    pub fn save_weather_config(config: &WeatherConfig) -> Result<(), String> {
+        let dir = app_data_dir().map_err(|e| e.to_string())?;
+        let path = dir.join(WEATHER_FILE_NAME);
+        Self::save_weather_config_at(config, &path)
+    }
+
+    pub fn load_weather_config() -> Result<Option<WeatherConfig>, String> {
+        let dir = app_data_dir().map_err(|e| e.to_string())?;
+        let path = dir.join(WEATHER_FILE_NAME);
+        Self::load_weather_config_at(&path)
+    }
+
+    fn save_weather_config_at(config: &WeatherConfig, path: &std::path::Path) -> Result<(), String> {
+        let json = serde_json::to_vec(config).map_err(|e| e.to_string())?;
+        encrypt_to_file(json, path, WEATHER_FILE_VERSION)
+    }
+
+    fn load_weather_config_at(path: &std::path::Path) -> Result<Option<WeatherConfig>, String> {
+        decrypt_from_file(path, WEATHER_FILE_VERSION)
+    }
+
+    pub fn has_weather_config() -> bool {
+        matches!(Self::load_weather_config(), Ok(Some(_)))
     }
 }
 
@@ -152,6 +194,33 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("nonexistent.enc");
         assert!(SecureConfigManager::load_ai_config_at(&path).unwrap().is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_weather_config_roundtrip() {
+        let dir = std::env::temp_dir().join("deskpet_test_weather_config");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("weather_config.enc");
+
+        let original = WeatherConfig {
+            api_key: "weather-secret-key".into(),
+            city: "Beijing".into(),
+        };
+        SecureConfigManager::save_weather_config_at(&original, &path).unwrap();
+        let loaded = SecureConfigManager::load_weather_config_at(&path).unwrap().unwrap();
+        assert_eq!(loaded.api_key, original.api_key);
+        assert_eq!(loaded.city, original.city);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_weather_config_missing_returns_none() {
+        let dir = std::env::temp_dir().join("deskpet_test_weather_config_missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("nonexistent.enc");
+        assert!(SecureConfigManager::load_weather_config_at(&path).unwrap().is_none());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

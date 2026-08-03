@@ -452,6 +452,22 @@ onMounted(async () => {
     console.warn('还原 AI 配置失败:', e)
   }
 
+  // 启动时恢复天气配置（加密文件 → 后端内存）
+  try {
+    const restoredWeather = await invoke<boolean>('restore_weather_config')
+    if (!restoredWeather) {
+      // 旧版用户 localStorage 明文迁移
+      const savedWeatherKey = localStorage.getItem('deskpet_weather_api_key')
+      const savedWeatherCity = localStorage.getItem('deskpet_weather_city')
+      if (savedWeatherKey && savedWeatherCity) {
+        await invoke('configure_weather', { apiKey: savedWeatherKey, city: savedWeatherCity })
+        localStorage.removeItem('deskpet_weather_api_key')
+      }
+    }
+  } catch (e) {
+    console.warn('还原天气配置失败:', e)
+  }
+
   tickInterval = setInterval(tickGhost, 5000)
   autoSaveInterval = setInterval(autoSaveGhost, 120000)
   initiative.startInitiativeLoop()

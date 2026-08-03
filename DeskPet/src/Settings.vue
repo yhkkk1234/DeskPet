@@ -153,6 +153,11 @@ async function loadLocalStorage() {
   answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
   weatherApiKey.value = localStorage.getItem('deskpet_weather_api_key') || ''
   weatherCity.value = localStorage.getItem('deskpet_weather_city') || ''
+  // 天气 Key 同 AI Key：已保存则显示掩码，明文只存后端加密文件
+  try {
+    const hasWeather = await invoke<boolean>('has_saved_weather_config')
+    if (hasWeather) weatherApiKey.value = KEY_MASK
+  } catch {}
   try {
     const saved = localStorage.getItem('deskpet_initiative_config')
     if (saved) {
@@ -261,7 +266,6 @@ async function saveTTSSettings() {
   localStorage.setItem('deskpet_tts_voice', ttsVoice.value)
   await syncTTSToMain()
   showSuccess('语音设置已保存')
-  emit('settings-updated', { section: 'tts' })
 }
 
 async function clearHistory() {
@@ -354,11 +358,13 @@ async function saveAIConfig() {
 async function saveWeatherConfig() {
   try {
     await invoke('configure_weather', {
-      apiKey: weatherApiKey.value.trim(),
+      apiKey: weatherApiKey.value.trim() || KEY_MASK,
       city: weatherCity.value.trim(),
     })
-    localStorage.setItem('deskpet_weather_api_key', weatherApiKey.value.trim())
     localStorage.setItem('deskpet_weather_city', weatherCity.value.trim())
+    // 迁移清理：删除明文天气 Key，此后只存后端加密文件
+    localStorage.removeItem('deskpet_weather_api_key')
+    weatherApiKey.value = KEY_MASK
     showSuccess('天气配置已保存')
   } catch (e: any) {
     showError('配置失败: ' + (e as string))

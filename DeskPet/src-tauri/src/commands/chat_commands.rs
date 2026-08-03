@@ -536,12 +536,43 @@ pub fn configure_weather(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     use crate::services::weather_service::WeatherConfig;
+
+    // 掩码占位符：保留已加密保存的天气 Key
+    let api_key = if api_key == KEY_MASK {
+        SecureConfigManager::load_weather_config()?
+            .map(|c| c.api_key)
+            .filter(|k| !k.is_empty())
+            .ok_or("天气 API Key 为占位符但未找到已保存的密钥，请重新填写")?
+    } else {
+        api_key
+    };
+
     let config = WeatherConfig { api_key, city };
+    // 先加密落盘再写内存
+    SecureConfigManager::save_weather_config(&config)?;
     let mut locked = state.weather.lock().map_err(|e| e.to_string())?;
     locked.config = config;
     // 强制下次刷新
     locked.last_fetch = None;
     Ok(())
+}
+
+/// 启动时恢复天气配置（加密文件 → 内存，明文不进前端）。
+#[tauri::command]
+pub fn restore_weather_config(state: State<'_, AppState>) -> Result<bool, String> {
+    let Some(config) = SecureConfigManager::load_weather_config()? else {
+        return Ok(false);
+    };
+    let mut locked = state.weather.lock().map_err(|e| e.to_string())?;
+    locked.config = config;
+    locked.last_fetch = None;
+    Ok(true)
+}
+
+/// 是否存在已加密保存的天气配置（前端据此显示掩码）。
+#[tauri::command]
+pub fn has_saved_weather_config() -> Result<bool, String> {
+    Ok(SecureConfigManager::has_weather_config())
 }
 
 #[tauri::command]

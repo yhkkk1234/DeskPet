@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { AnimationState, MoodAnimationConfig } from '../composables/useAnimation'
 import { STATE_TO_CSS_CLASS } from '../composables/useAnimation'
 
@@ -18,8 +19,6 @@ const computedClass = computed(() => {
 const computedStyle = computed(() => ({
   ...props.styleOverride,
 }))
-
-import { computed } from 'vue'
 </script>
 
 <template>

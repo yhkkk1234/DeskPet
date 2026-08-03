@@ -74,6 +74,15 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        // 单实例：重复启动时聚焦已有窗口，避免双桌宠/热键冲突
+        .plugin(
+            tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+                if let Some(window) = app.get_webview_window("pet") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -102,6 +111,8 @@ pub fn run() {
             commands::chat_commands::has_saved_ai_config,
             commands::chat_commands::test_ai_connection,
             commands::chat_commands::configure_weather,
+            commands::chat_commands::restore_weather_config,
+            commands::chat_commands::has_saved_weather_config,
             commands::chat_commands::init_database,
             commands::chat_commands::ensure_database,
             commands::chat_commands::timeline_tick,
