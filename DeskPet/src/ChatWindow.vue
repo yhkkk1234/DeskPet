@@ -898,6 +898,7 @@ onUnmounted(() => {
 
 .chat-input {
   flex: 1;
+  min-width: 0;
   padding: 7px 12px;
   border: 2px solid #e0e0e0;
   border-radius: 12px;
