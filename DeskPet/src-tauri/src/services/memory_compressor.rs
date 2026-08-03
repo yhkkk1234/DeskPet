@@ -67,22 +67,7 @@ impl MemoryCompressor {
         let system_prompt = "你是记忆压缩系统，将多条短期记忆提炼为少量长期记忆。只输出JSON。";
         let response = ai_service.chat(system_prompt, &messages).await?;
 
-        let json_str = extract_json_array(&response);
-        let parsed: Vec<serde_json::Value> = serde_json::from_str(json_str)
-            .map_err(|e| format!("记忆压缩JSON解析失败: {}", e))?;
-
-        let mut results = Vec::new();
-        for item in &parsed {
-            let summary = item["summary"].as_str().unwrap_or("").to_string();
-            if summary.is_empty() { continue; }
-            results.push(ParsedLTM {
-                importance: item["importance"].as_f64().unwrap_or(0.5).clamp(0.0, 1.0),
-                is_core: item["is_core"].as_bool().unwrap_or(false),
-                event_type: item["event_type"].as_str().map(|s| s.to_string()),
-                summary,
-            });
-        }
-        Ok(results)
+        parse_ltm_response(&response)
     }
 
     pub async fn extract_experience_via_ai(
@@ -99,20 +84,7 @@ impl MemoryCompressor {
         let system_prompt = "你是经验提取系统。从记忆中识别可迁移知识。只输出JSON。";
         let response = ai_service.chat(system_prompt, &messages).await?;
 
-        let json_str = extract_json(&response);
-        let parsed: serde_json::Value = serde_json::from_str(json_str)
-            .map_err(|e| format!("经验提取JSON解析失败: {}", e))?;
-
-        if parsed["found"].as_bool().unwrap_or(false) {
-            Ok(ExtractedExperience {
-                name: parsed["name"].as_str().unwrap_or("未命名技能").to_string(),
-                summary: parsed["summary"].as_str().unwrap_or("").to_string(),
-                source: parsed["source"].as_str().unwrap_or("主人教会").to_string(),
-                proficiency: parsed["proficiency"].as_f64().unwrap_or(0.3).clamp(0.1, 1.0),
-            })
-        } else {
-            Err("No extractable experience".into())
-        }
+        parse_experience_response(&response)
     }
 
     pub fn save_compress_results(
@@ -200,21 +172,68 @@ impl MemoryCompressor {
         let system_prompt = "你是记忆模糊化系统。你将精确的记忆改写为带有不确定感的模糊版本。只输出JSON。";
         let response = ai_service.chat(system_prompt, &messages).await?;
 
-        let json_str = extract_json_array(&response);
-        let parsed: Vec<serde_json::Value> = serde_json::from_str(json_str)
-            .map_err(|e| format!("记忆模糊化JSON解析失败: {}", e))?;
+        Ok(parse_blur_response(&response, summaries))
+    }
+}
 
-        let mut results = Vec::new();
-        for item in &parsed {
-            let index = item["index"].as_u64().unwrap_or(0) as usize;
-            if let Some(blurred) = item["blurred"].as_str() {
-                if index > 0 && index <= summaries.len() {
-                    results.push((summaries[index - 1].0.clone(), blurred.to_string()));
-                }
+/// 解析 LTM 压缩响应（纯函数）：提取 [..] 数组，缺失字段回退，空摘要跳过。
+pub fn parse_ltm_response(response: &str) -> Result<Vec<ParsedLTM>, String> {
+    let json_str = extract_json_array(response);
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(json_str)
+        .map_err(|e| format!("记忆压缩JSON解析失败: {}", e))?;
+
+    let mut results = Vec::new();
+    for item in &parsed {
+        let summary = item["summary"].as_str().unwrap_or("").to_string();
+        if summary.is_empty() { continue; }
+        results.push(ParsedLTM {
+            importance: item["importance"].as_f64().unwrap_or(0.5).clamp(0.0, 1.0),
+            is_core: item["is_core"].as_bool().unwrap_or(false),
+            event_type: item["event_type"].as_str().map(|s| s.to_string()),
+            summary,
+        });
+    }
+    Ok(results)
+}
+
+/// 解析经验提取响应（纯函数）：found=false 时返回 Err("No extractable experience")。
+pub fn parse_experience_response(response: &str) -> Result<ExtractedExperience, String> {
+    let json_str = extract_json(response);
+    let parsed: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| format!("经验提取JSON解析失败: {}", e))?;
+
+    if parsed["found"].as_bool().unwrap_or(false) {
+        Ok(ExtractedExperience {
+            name: parsed["name"].as_str().unwrap_or("未命名技能").to_string(),
+            summary: parsed["summary"].as_str().unwrap_or("").to_string(),
+            source: parsed["source"].as_str().unwrap_or("主人教会").to_string(),
+            proficiency: parsed["proficiency"].as_f64().unwrap_or(0.3).clamp(0.1, 1.0),
+        })
+    } else {
+        Err("No extractable experience".into())
+    }
+}
+
+/// 解析记忆模糊化响应（纯函数）：按 index 映射回原摘要 id，越界丢弃。
+pub fn parse_blur_response(
+    response: &str,
+    summaries: &[(String, String)],
+) -> Vec<(String, String)> {
+    let Ok(parsed) = serde_json::from_str::<Vec<serde_json::Value>>(extract_json_array(response))
+    else {
+        return Vec::new();
+    };
+
+    let mut results = Vec::new();
+    for item in &parsed {
+        let index = item["index"].as_u64().unwrap_or(0) as usize;
+        if let Some(blurred) = item["blurred"].as_str() {
+            if index > 0 && index <= summaries.len() {
+                results.push((summaries[index - 1].0.clone(), blurred.to_string()));
             }
         }
-        Ok(results)
     }
+    results
 }
 
 fn extract_json(text: &str) -> &str {
@@ -232,5 +251,141 @@ fn extract_json_array(text: &str) -> &str {
     match (start, end) {
         (Some(s), Some(e)) if e > s => &text[s..=e],
         _ => text,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::database::Database;
+
+    fn test_db() -> Database {
+        Database::new(":memory:").expect("内存数据库初始化失败")
+    }
+
+    #[test]
+    fn test_parse_ltm_response_full() {
+        let raw = r#"[{"summary":"第一次见面很开心","importance":0.9,"is_core":true,"event_type":"FirstConversation"}]"#;
+        let items = parse_ltm_response(raw).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].summary, "第一次见面很开心");
+        assert_eq!(items[0].importance, 0.9);
+        assert!(items[0].is_core);
+        assert_eq!(items[0].event_type.as_deref(), Some("FirstConversation"));
+    }
+
+    #[test]
+    fn test_parse_ltm_response_with_fence_and_defaults() {
+        // markdown 围栏 + 缺失字段回退 + 空摘要跳过
+        let raw = "以下是压缩结果：\n```json\n[{\"summary\":\"A\",\"importance\":3.0},{\"summary\":\"\",\"importance\":0.9}]\n```";
+        let items = parse_ltm_response(raw).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].summary, "A");
+        assert_eq!(items[0].importance, 1.0); // clamp
+        assert!(!items[0].is_core); // 默认 false
+        assert_eq!(items[0].event_type, None);
+    }
+
+    #[test]
+    fn test_parse_ltm_response_invalid() {
+        assert!(parse_ltm_response("不是数组").is_err());
+    }
+
+    #[test]
+    fn test_parse_experience_found() {
+        let raw = r#"{"found":true,"name":"Rust所有权","summary":"理解了借用规则","source":"对话总结","proficiency":0.6}"#;
+        let exp = parse_experience_response(raw).unwrap();
+        assert_eq!(exp.name, "Rust所有权");
+        assert_eq!(exp.source, "对话总结");
+        assert_eq!(exp.proficiency, 0.6);
+    }
+
+    #[test]
+    fn test_parse_experience_not_found() {
+        assert!(parse_experience_response(r#"{"found":false}"#).is_err());
+        // 缺失 found 字段也视为未找到
+        assert!(parse_experience_response("{}").is_err());
+    }
+
+    #[test]
+    fn test_parse_blur_response_mapping() {
+        let summaries = vec![("id1".to_string(), "原始记忆1".to_string()), ("id2".to_string(), "原始记忆2".to_string())];
+        let raw = r#"[{"index":1,"blurred":"好像发生过什么"},{"index":2,"blurred":"记不清了"},{"index":99,"blurred":"越界应丢弃"}]"#;
+        let results = parse_blur_response(raw, &summaries);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0, "id1");
+        assert_eq!(results[0].1, "好像发生过什么");
+        assert_eq!(results[1].0, "id2");
+        // 越界 index 丢弃
+    }
+
+    #[test]
+    fn test_should_compress_threshold() {
+        let db = test_db();
+        assert!(!MemoryCompressor::should_compress(&db, "g1").unwrap());
+        for i in 0..20 {
+            db.save_short_term_memory(&format!("s{}", i), "g1", &format!("记忆{}", i), 0.5, 1.0, 0.0, None, None)
+                .unwrap();
+        }
+        assert!(MemoryCompressor::should_compress(&db, "g1").unwrap());
+        // 其他 ghost 不受影响
+        assert!(!MemoryCompressor::should_compress(&db, "g2").unwrap());
+    }
+
+    #[test]
+    fn test_fetch_stm_data_orders_by_importance() {
+        let db = test_db();
+        db.save_short_term_memory("low", "g1", "低重要性", 0.1, 1.0, 0.0, None, None).unwrap();
+        db.save_short_term_memory("high", "g1", "高重要性", 0.9, 1.0, 0.0, None, None).unwrap();
+        let data = MemoryCompressor::fetch_stm_data(&db, "g1").unwrap();
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[0].0, "high"); // importance DESC
+        assert_eq!(data[0].2, "高重要性");
+    }
+
+    #[test]
+    fn test_save_compress_results_full_flow() {
+        let db = test_db();
+        // 造 3 条 STM
+        for i in 0..3 {
+            db.save_short_term_memory(&format!("s{}", i), "g1", &format!("短期记忆{}", i), 0.5, 1.0, 0.0, None, None)
+                .unwrap();
+        }
+        let ltm = vec![
+            ParsedLTM { summary: "长期记忆A".into(), importance: 0.8, is_core: true, event_type: Some("FirstConversation".into()) },
+        ];
+        let exp = vec![
+            ExtractedExperience { name: "技能X".into(), summary: "学会X".into(), source: "对话".into(), proficiency: 0.5 },
+        ];
+        let stm_ids = vec!["s0".to_string(), "s1".to_string(), "s2".to_string()];
+
+        let result = MemoryCompressor::save_compress_results(&db, "g1", &ltm, &stm_ids, &exp).unwrap();
+        assert_eq!(result.new_ltm_count, 1);
+        assert_eq!(result.new_experience_count, 1);
+
+        // LTM 已保存（含 core 标记）
+        let ltms = db.get_long_term_memories("g1", 10).unwrap();
+        assert_eq!(ltms.len(), 1);
+        assert!(ltms[0].is_core_memory);
+
+        // 经验已保存且关联到 LTM id
+        let exps = db.get_experiences("g1").unwrap();
+        assert_eq!(exps.len(), 1);
+        assert_eq!(exps[0].name, "技能X");
+        assert!(exps[0].source_memory_id.is_some());
+
+        // STM 已清除
+        assert_eq!(db.count_short_term_memories("g1").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_save_compress_results_clears_only_matching_stm() {
+        let db = test_db();
+        db.save_short_term_memory("keep", "g2", "别的灵魂的记忆", 0.5, 1.0, 0.0, None, None).unwrap();
+        db.save_short_term_memory("del", "g1", "要删的", 0.5, 1.0, 0.0, None, None).unwrap();
+
+        MemoryCompressor::save_compress_results(&db, "g1", &[], &["del".to_string()], &[]).unwrap();
+        assert_eq!(db.count_short_term_memories("g1").unwrap(), 0);
+        assert_eq!(db.count_short_term_memories("g2").unwrap(), 1);
     }
 }

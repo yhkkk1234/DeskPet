@@ -434,3 +434,109 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
         format!("{}...", s.chars().take(max_chars).collect::<String>())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_chat_url_full_path() {
+        // 用户填了完整路径 → 直接用
+        assert_eq!(
+            build_chat_url("https://api.deepseek.com/v1/chat/completions"),
+            "https://api.deepseek.com/v1/chat/completions"
+        );
+        // 尾部斜杠容忍
+        assert_eq!(
+            build_chat_url("https://api.example.com/v1/chat/completions/"),
+            "https://api.example.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_build_chat_url_version_suffix() {
+        assert_eq!(
+            build_chat_url("https://api.deepseek.com/v1"),
+            "https://api.deepseek.com/v1/chat/completions"
+        );
+        assert_eq!(
+            build_chat_url("https://api.example.com/v2"),
+            "https://api.example.com/v2/chat/completions"
+        );
+        assert_eq!(
+            build_chat_url("https://api.example.com/api"),
+            "https://api.example.com/api/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_build_chat_url_mid_path() {
+        // 路径中间含 /v1/ → 只拼 /chat/completions
+        assert_eq!(
+            build_chat_url("https://example.com/v1/"),
+            "https://example.com/v1/chat/completions"
+        );
+        assert_eq!(
+            build_chat_url("https://example.com/api/v1"),
+            "https://example.com/api/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_build_chat_url_bare_domain() {
+        // 裸域名 → 自动补 /v1/
+        assert_eq!(
+            build_chat_url("https://api.deepseek.com"),
+            "https://api.deepseek.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_build_image_url() {
+        assert_eq!(
+            build_image_url("https://api.example.com/v1"),
+            "https://api.example.com/v1/images/generations"
+        );
+        assert_eq!(
+            build_image_url("https://api.example.com"),
+            "https://api.example.com/v1/images/generations"
+        );
+        assert_eq!(
+            build_image_url("https://api.example.com/v1/images/generations"),
+            "https://api.example.com/v1/images/generations"
+        );
+    }
+
+    #[test]
+    fn test_extract_error_message_html() {
+        let html = "<!DOCTYPE html><html><body>404 Not Found</body></html>";
+        let msg = extract_error_message(html);
+        assert!(msg.contains("HTML 页面"));
+        assert!(msg.contains("/v1"));
+    }
+
+    #[test]
+    fn test_extract_error_message_json() {
+        let json = r#"{"error":{"message":"Invalid API key","type":"auth_error"}}"#;
+        assert_eq!(extract_error_message(json), "Invalid API key");
+        // 无 message 字段 → 返回 error 对象原文
+        let json2 = r#"{"error":{"code":429}}"#;
+        assert!(extract_error_message(json2).contains("429"));
+    }
+
+    #[test]
+    fn test_extract_error_message_plain_truncated() {
+        let long = "x".repeat(500);
+        let msg = extract_error_message(&long);
+        assert!(msg.len() < 400);
+        assert!(msg.ends_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_str() {
+        assert_eq!(truncate_str("短文本", 100), "短文本");
+        let t = truncate_str("很长很长的文本", 4);
+        assert!(t.ends_with("..."));
+        assert!(t.chars().count() <= 8);
+    }
+}

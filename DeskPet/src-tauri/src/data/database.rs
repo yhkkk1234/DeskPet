@@ -24,41 +24,34 @@ impl Database {
         Ok(db)
     }
 
+    /// 迁移列表：版本号递增，用 PRAGMA user_version 追踪已应用的最大版本。
+    /// 新增迁移时在此追加一项（如 (7, include_str!("../../migrations/007_xxx.sql"))）。
+    const MIGRATIONS: &[(i64, &str)] = &[
+        (1, include_str!("../../migrations/001_initial.sql")),
+        (2, include_str!("../../migrations/002_add_app_state.sql")),
+        (3, include_str!("../../migrations/003_add_dreams.sql")),
+        (4, include_str!("../../migrations/004_add_achievements.sql")),
+        (5, include_str!("../../migrations/005_add_diary.sql")),
+        (6, include_str!("../../migrations/006_add_document_knowledge.sql")),
+    ];
+
     fn run_migrations(&mut self) -> Result<(), String> {
-        let migration_sql = include_str!("../../migrations/001_initial.sql");
-        self.conn
-            .execute_batch(migration_sql)
-            .map_err(|e| format!("Migration failed: {}", e))?;
+        let current: i64 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(|e| format!("读取 schema 版本失败: {}", e))?;
 
-        // 运行 002_add_app_state.sql
-        let migration_sql2 = include_str!("../../migrations/002_add_app_state.sql");
-        self.conn
-            .execute_batch(migration_sql2)
-            .map_err(|e| format!("Migration 002 failed: {}", e))?;
-
-        // 运行 003_add_dreams.sql
-        let migration_sql3 = include_str!("../../migrations/003_add_dreams.sql");
-        self.conn
-            .execute_batch(migration_sql3)
-            .map_err(|e| format!("Migration 003 failed: {}", e))?;
-
-        // 运行 004_add_achievements.sql
-        let migration_sql4 = include_str!("../../migrations/004_add_achievements.sql");
-        self.conn
-            .execute_batch(migration_sql4)
-            .map_err(|e| format!("Migration 004 failed: {}", e))?;
-
-        // 运行 005_add_diary.sql
-        let migration_sql5 = include_str!("../../migrations/005_add_diary.sql");
-        self.conn
-            .execute_batch(migration_sql5)
-            .map_err(|e| format!("Migration 005 failed: {}", e))?;
-
-        // 运行 006_add_document_knowledge.sql
-        let migration_sql6 = include_str!("../../migrations/006_add_document_knowledge.sql");
-        self.conn
-            .execute_batch(migration_sql6)
-            .map_err(|e| format!("Migration 006 failed: {}", e))?;
+        for (version, sql) in Self::MIGRATIONS {
+            if *version <= current {
+                continue;
+            }
+            self.conn
+                .execute_batch(sql)
+                .map_err(|e| format!("Migration {} failed: {}", version, e))?;
+            self.conn
+                .execute_batch(&format!("PRAGMA user_version = {}", version))
+                .map_err(|e| format!("更新 schema 版本失败 (v{}): {}", version, e))?;
+        }
 
         Ok(())
     }
@@ -1421,5 +1414,42 @@ mod tests {
         db.touch_memory_accessed(&["stm1"], &["ltm1"]).unwrap();
         // 不崩溃即通过（LastAccessedAt 更新成功）
         assert!(db.count_short_term_memories("g1").unwrap() == 1);
+    }
+
+    #[test]
+    fn test_migration_version_tracking() {
+        let db = test_db();
+        // 新库迁移全部应用 → user_version = 6
+        let version: i64 = db
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 6);
+    }
+
+    #[test]
+    fn test_migration_idempotent_reopen() {
+        // 模拟"重启应用再次打开数据库"：迁移应跳过已应用版本且不报错
+        let dir = std::env::temp_dir().join("deskpet_test_migration_reopen");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("reopen.db");
+        let _ = std::fs::remove_file(&path);
+
+        let db1 = Database::new(path.to_str().unwrap()).unwrap();
+        db1.save_chat_message("m1", "g1", "user", "重启前数据").unwrap();
+
+        // 再次打开（新连接，重新跑 run_migrations）
+        let db2 = Database::new(path.to_str().unwrap()).unwrap();
+        let version: i64 = db2
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 6);
+        // 数据保留
+        assert_eq!(db2.count_chat_messages("g1").unwrap(), 1);
+        // 旧表仍可写入
+        db2.save_dream("d1", "g1", "梦", None, "peaceful").unwrap();
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
