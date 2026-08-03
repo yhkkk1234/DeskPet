@@ -19,6 +19,14 @@ pub struct AIProviderConfig {
     pub image_gen_endpoint: Option<String>,
     pub image_gen_api_key: Option<String>,
     pub is_default: bool,
+    // 语音转写（STT）配置：OpenAI 兼容 /audio/transcriptions 端点。
+    // 默认跟随主 endpoint/key；留空表示未启用语音输入。
+    #[serde(default)]
+    pub stt_endpoint: Option<String>,
+    #[serde(default)]
+    pub stt_api_key: Option<String>,
+    #[serde(default)]
+    pub stt_model: Option<String>,
 }
 
 pub struct AIService {

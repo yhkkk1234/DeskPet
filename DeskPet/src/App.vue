@@ -433,10 +433,14 @@ onMounted(async () => {
           imageModel: localStorage.getItem('deskpet_ai_image_model') || null,
           imageGenEndpoint: localStorage.getItem('deskpet_ai_image_gen_endpoint') || null,
           imageGenApiKey: localStorage.getItem('deskpet_ai_image_gen_api_key') || null,
+          sttEndpoint: localStorage.getItem('deskpet_ai_stt_endpoint') || null,
+          sttApiKey: localStorage.getItem('deskpet_ai_stt_api_key') || null,
+          sttModel: localStorage.getItem('deskpet_ai_stt_model') || null,
         })
         // 迁移成功：加密已落盘，清除明文
         localStorage.removeItem('deskpet_ai_api_key')
         localStorage.removeItem('deskpet_ai_image_gen_api_key')
+        localStorage.removeItem('deskpet_ai_stt_api_key')
       } else {
         // 首次启动或未配置：引导用户去设置 AI 接口。
         // 没有可用 AI 配置时，桌宠能动能展示但无法对话/情感/记忆——这是最大的新手流失点。

@@ -18,11 +18,12 @@ chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 rand = "0.8"
 rand_distr = "0.4"
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "multipart"], default-features = false }
 urlencoding = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 edge-tts-rust = "0.1"
+cpal = "0.15"
 dirs = "6"
 base64 = "0.22"
 png = "0.17"

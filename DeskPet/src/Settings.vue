@@ -21,6 +21,9 @@ const aiVisionModel = ref('')
 const aiImageModel = ref('')
 const aiImageGenEndpoint = ref('')
 const aiImageGenApiKey = ref('')
+const aiSttEndpoint = ref('')
+const aiSttApiKey = ref('')
+const aiSttModel = ref('whisper-1')
 
 const weatherApiKey = ref('')
 const weatherCity = ref('')
@@ -129,14 +132,18 @@ async function loadLocalStorage() {
   aiVisionModel.value = localStorage.getItem('deskpet_ai_vision_model') || ''
   aiImageModel.value = localStorage.getItem('deskpet_ai_image_model') || ''
   aiImageGenEndpoint.value = localStorage.getItem('deskpet_ai_image_gen_endpoint') || ''
+  aiSttEndpoint.value = localStorage.getItem('deskpet_ai_stt_endpoint') || ''
+  aiSttModel.value = localStorage.getItem('deskpet_ai_stt_model') || 'whisper-1'
   // 密钥不再从 localStorage 读取明文：已保存的显示掩码占位符（明文只存在于后端内存/加密文件）
   try {
     const has = await invoke<boolean>('has_saved_ai_config')
     aiApiKey.value = has ? KEY_MASK : ''
     aiImageGenApiKey.value = has ? KEY_MASK : ''
+    aiSttApiKey.value = has ? KEY_MASK : ''
   } catch {
     aiApiKey.value = ''
     aiImageGenApiKey.value = ''
+    aiSttApiKey.value = ''
   }
   ttsEnabled.value = localStorage.getItem('deskpet_tts_enabled') === 'true'
   ttsRate.value = parseFloat(localStorage.getItem('deskpet_tts_rate') || '1.0')
@@ -317,6 +324,9 @@ async function saveAIConfig() {
       imageModel: aiImageModel.value.trim() || null,
       imageGenEndpoint: aiImageGenEndpoint.value.trim() || null,
       imageGenApiKey: aiImageGenApiKey.value.trim() || null,
+      sttEndpoint: aiSttEndpoint.value.trim() || null,
+      sttApiKey: aiSttApiKey.value.trim() || null,
+      sttModel: aiSttModel.value.trim() || null,
     })
     // 非敏感项仍可存 localStorage（向后兼容展示用）
     localStorage.setItem('deskpet_ai_endpoint', aiEndpoint.value.trim())
@@ -324,12 +334,16 @@ async function saveAIConfig() {
     localStorage.setItem('deskpet_ai_vision_model', aiVisionModel.value.trim())
     localStorage.setItem('deskpet_ai_image_model', aiImageModel.value.trim())
     localStorage.setItem('deskpet_ai_image_gen_endpoint', aiImageGenEndpoint.value.trim())
+    localStorage.setItem('deskpet_ai_stt_endpoint', aiSttEndpoint.value.trim())
+    localStorage.setItem('deskpet_ai_stt_model', aiSttModel.value.trim())
     // 迁移清理：删除旧版明文密钥（若存在），此后密钥只存于后端加密文件
     localStorage.removeItem('deskpet_ai_api_key')
     localStorage.removeItem('deskpet_ai_image_gen_api_key')
+    localStorage.removeItem('deskpet_ai_stt_api_key')
     // 保存成功后输入框切换为掩码，避免明文残留在页面 DOM 中
     aiApiKey.value = KEY_MASK
     aiImageGenApiKey.value = KEY_MASK
+    aiSttApiKey.value = KEY_MASK
     showSuccess('AI 配置已保存')
     await emit('settings-updated', { section: 'ai' })
   } catch (e: any) {
@@ -679,6 +693,15 @@ async function renameGhost() {
             <label class="config-label">生图 API Key</label>
             <input v-model="aiImageGenApiKey" class="config-input" type="password" placeholder="留空则用主API Key" />
             <p class="field-hint" v-if="aiImageGenEndpoint.trim()">独立生图路径已配置，将使用独立endpoint</p>
+            <div class="config-divider"></div>
+            <label class="config-subtitle">语音输入 STT (可选)</label>
+            <label class="config-label">STT Endpoint</label>
+            <input v-model="aiSttEndpoint" class="config-input" placeholder="留空则用主Endpoint (需支持 /audio/transcriptions)" />
+            <label class="config-label">STT API Key</label>
+            <input v-model="aiSttApiKey" class="config-input" type="password" placeholder="留空则用主API Key" />
+            <label class="config-label">STT Model</label>
+            <input v-model="aiSttModel" class="config-input" placeholder="whisper-1" />
+            <p class="field-hint">需要 Whisper 兼容端点：OpenAI / Groq / 智谱 等。DeepSeek 不支持语音</p>
             <button @click="testConnection" :disabled="testingConnection" class="btn btn-secondary btn-full">
               {{ testingConnection ? '测试中...' : '测试连接' }}
             </button>

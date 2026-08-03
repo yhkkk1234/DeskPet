@@ -423,6 +423,9 @@ pub fn configure_ai(
     image_model: Option<String>,
     image_gen_endpoint: Option<String>,
     image_gen_api_key: Option<String>,
+    stt_endpoint: Option<String>,
+    stt_api_key: Option<String>,
+    stt_model: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     if endpoint.trim().is_empty() {
@@ -460,6 +463,14 @@ pub fn configure_ai(
         _ => None,
     };
 
+    let stt_api_key = match stt_api_key {
+        Some(k) if k == KEY_MASK => {
+            stored.and_then(|c| c.stt_api_key.clone())
+        }
+        Some(k) if !k.trim().is_empty() => Some(k),
+        _ => None,
+    };
+
     let config = AIProviderConfig {
         endpoint,
         api_key,
@@ -469,6 +480,9 @@ pub fn configure_ai(
         image_gen_endpoint: image_gen_endpoint.filter(|s| !s.trim().is_empty()),
         image_gen_api_key,
         is_default: true,
+        stt_endpoint: stt_endpoint.filter(|s| !s.trim().is_empty()),
+        stt_api_key,
+        stt_model: stt_model.filter(|s| !s.trim().is_empty()),
     };
 
     // 先加密落盘再写入内存：写盘失败视为保存失败，避免「显示成功重启却丢失」
@@ -973,6 +987,9 @@ pub async fn test_ai_connection(
         image_gen_endpoint: None,
         image_gen_api_key: None,
         is_default: true,
+        stt_endpoint: None,
+        stt_api_key: None,
+        stt_model: None,
     };
     let ai_service = AIService::new(config);
     let reply = ai_service.chat(
@@ -1339,6 +1356,38 @@ pub async fn initiative_tick(
     .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+/// 开始录音（语音输入 STT）。重复调用无副作用。
+#[tauri::command]
+pub fn start_recording() -> Result<(), String> {
+    crate::services::stt_service::SttService::start_recording()
+}
+
+/// 停止录音并返回 WAV 的 base64。
+#[tauri::command]
+pub fn stop_recording() -> Result<String, String> {
+    let wav = crate::services::stt_service::SttService::stop_recording()?;
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&wav))
+}
+
+/// 语音转写：WAV base64 → 文本。STT 配置优先用独立配置，否则跟随主 endpoint/key。
+#[tauri::command]
+pub async fn transcribe_audio(wav_base64: String, state: State<'_, AppState>) -> Result<String, String> {
+    use base64::Engine;
+    let wav = base64::engine::general_purpose::STANDARD
+        .decode(wav_base64.as_bytes())
+        .map_err(|e| format!("音频数据解码失败: {e}"))?;
+
+    let cfg = state.ai_config.lock().map_err(|e| e.to_string())?.clone();
+    let cfg = cfg.ok_or("AI 未配置，请先在设置中填写接口")?;
+
+    let endpoint = cfg.stt_endpoint.clone().unwrap_or_else(|| cfg.endpoint.clone());
+    let api_key = cfg.stt_api_key.clone().unwrap_or_else(|| cfg.api_key.clone());
+    let model = cfg.stt_model.clone().unwrap_or_else(|| "whisper-1".to_string());
+
+    crate::services::stt_service::SttService::transcribe(wav, &endpoint, &api_key, &model).await
 }
 
 /// 将毫秒级 Unix 时间戳格式化为带毫秒的 ISO8601 字符串（UTC），如 "2026-07-06 12:34:56.789"

@@ -119,6 +119,9 @@ mod tests {
             image_gen_endpoint: Some("https://example.com/v1".into()),
             image_gen_api_key: Some("sk-image-secret".into()),
             is_default: true,
+            stt_endpoint: None,
+            stt_api_key: None,
+            stt_model: None,
         }
     }
 

@@ -51,6 +51,48 @@ const typingText = computed(() => typingDots.value.join(' '))
 
 const impressionNote = ref('')
 
+// ===== 语音输入 (STT) =====
+const recording = ref(false)
+const transcribing = ref(false)
+const recordingSeconds = ref(0)
+let recordingTimer: ReturnType<typeof setInterval> | null = null
+
+async function toggleRecording() {
+  if (recording.value) {
+    await stopAndTranscribe()
+    return
+  }
+  try {
+    await invoke('start_recording')
+    recording.value = true
+    recordingSeconds.value = 0
+    recordingTimer = setInterval(() => { recordingSeconds.value++ }, 1000)
+  } catch (e: any) {
+    messages.value.push({ role: 'system', content: `录音失败: ${e}` })
+  }
+}
+
+async function stopAndTranscribe() {
+  recording.value = false
+  if (recordingTimer) {
+    clearInterval(recordingTimer)
+    recordingTimer = null
+  }
+  transcribing.value = true
+  try {
+    const wavBase64 = await invoke<string>('stop_recording')
+    const text = await invoke<string>('transcribe_audio', { wavBase64 })
+    if (text) {
+      inputValue.value = (inputValue.value + ' ' + text).trim()
+      nextTick(() => inputRef.value?.focus())
+    }
+  } catch (e: any) {
+    messages.value.push({ role: 'system', content: `语音转写失败: ${e}` })
+  } finally {
+    transcribing.value = false
+  }
+}
+
 async function refreshImpressionNote() {
   try {
     const status = await invoke<string>('get_ghost_status')
@@ -531,6 +573,16 @@ onUnmounted(() => {
         <span class="impression-note-text">{{ impressionNote }}</span>
       </div>
 
+      <!-- 录音指示 -->
+      <div v-if="recording" class="recording-indicator">
+        <span class="rec-dot"></span>
+        <span>录音中 {{ recordingSeconds }}s · 点击 🎤 结束</span>
+      </div>
+      <div v-if="transcribing" class="recording-indicator">
+        <span class="loading-spinner"></span>
+        <span>正在转写...</span>
+      </div>
+
       <!-- Input area -->
       <div class="chat-input-area">
         <button
@@ -548,6 +600,15 @@ onUnmounted(() => {
           :placeholder="placeholderText"
           @keydown="handleKeydown"
         />
+        <button
+          class="chat-mic-btn"
+          :class="{ 'mic-recording': recording }"
+          :disabled="chatLoading || importingDoc || transcribing"
+          @click="toggleRecording"
+          :title="recording ? '停止并转写' : '语音输入 (🎤)'"
+        >
+          🎤
+        </button>
         <button class="chat-file-btn" :disabled="chatLoading || importingDoc" @click="handleFileSelect" title="导入文档 (.txt/.docx)">
           📎
         </button>
@@ -1013,6 +1074,79 @@ onUnmounted(() => {
 .chat-file-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.chat-mic-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 36px;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  background: #fafafa;
+  cursor: pointer;
+  font-size: 15px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.chat-mic-btn:hover:not(:disabled) {
+  border-color: #c084fc;
+  background: #faf5ff;
+  transform: scale(1.1);
+}
+
+.chat-mic-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-mic-btn.mic-recording {
+  border-color: #f44336;
+  background: rgba(244, 67, 54, 0.12);
+  animation: micPulse 1s ease-in-out infinite;
+}
+
+@keyframes micPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px 0;
+  font-size: 10.5px;
+  color: #e53935;
+  flex-shrink: 0;
+}
+
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f44336;
+  animation: recBlink 1s step-start infinite;
+}
+
+@keyframes recBlink {
+  50% { opacity: 0.2; }
+}
+
+.recording-indicator .loading-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: #ff6b9d;
+  border-radius: 50%;
+  animation: recSpin 0.7s linear infinite;
+}
+
+@keyframes recSpin {
+  to { transform: rotate(360deg); }
 }
 
 .drag-overlay {
