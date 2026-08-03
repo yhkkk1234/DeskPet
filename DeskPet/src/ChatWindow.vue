@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, emit } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { LogicalPosition } from '@tauri-apps/api/dpi'
+import { LogicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { open } from '@tauri-apps/plugin-dialog'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import BubbleMessage from './components/BubbleMessage.vue'
@@ -56,6 +56,68 @@ const recording = ref(false)
 const transcribing = ref(false)
 const recordingSeconds = ref(0)
 let recordingTimer: ReturnType<typeof setInterval> | null = null
+
+// ===== 窗口 resize：拖动气泡边缘（透明窗口看不见系统边缘，热区放在窗口四周）=====
+const MIN_WINDOW_W = 300
+const MIN_WINDOW_H = 300
+
+function startResize(dir: string, e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  const startX = e.screenX
+  const startY = e.screenY
+
+  chatWindow.outerPosition().then(async (pos) => {
+    const sf = await chatWindow.scaleFactor()
+    const startLeft = pos.x / sf
+    const startTop = pos.y / sf
+    const size = await chatWindow.innerSize()
+    const startW = size.width / sf
+    const startH = size.height / sf
+
+    let lastX = startX
+    let lastY = startY
+    let rafId: number | null = null
+
+    // 按方向计算新窗口位置/尺寸（逻辑像素，setSize 用物理像素）
+    const apply = (mx: number, my: number) => {
+      const dx = mx - startX
+      const dy = my - startY
+      let left = startLeft
+      let top = startTop
+      let w = startW
+      let h = startH
+      if (dir.includes('e')) w = startW + dx
+      if (dir.includes('s')) h = startH + dy
+      if (dir.includes('w')) { w = startW - dx; left = startLeft + dx }
+      if (dir.includes('n')) { h = startH - dy; top = startTop + dy }
+      if (w < MIN_WINDOW_W) { w = MIN_WINDOW_W; if (dir.includes('w')) left = startLeft + startW - MIN_WINDOW_W }
+      if (h < MIN_WINDOW_H) { h = MIN_WINDOW_H; if (dir.includes('n')) top = startTop + startH - MIN_WINDOW_H }
+      chatWindow.setPosition(new LogicalPosition(Math.round(left), Math.round(top))).catch(() => {})
+      chatWindow.setSize(new PhysicalSize(Math.round(w * sf), Math.round(h * sf))).catch(() => {})
+    }
+
+    const onMove = (me: MouseEvent) => {
+      lastX = me.screenX
+      lastY = me.screenY
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        apply(lastX, lastY)
+      })
+    }
+    const onUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
+}
 
 async function toggleRecording() {
   if (recording.value) {
@@ -619,6 +681,18 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- 四周透明 resize 热区：鼠标放边缘变 resize 光标，拖动调整窗口大小（气泡同步跟随） -->
+    <div class="chat-resize-frame">
+      <div class="rs rs-n" @mousedown="startResize('n', $event)"></div>
+      <div class="rs rs-s" @mousedown="startResize('s', $event)"></div>
+      <div class="rs rs-e" @mousedown="startResize('e', $event)"></div>
+      <div class="rs rs-w" @mousedown="startResize('w', $event)"></div>
+      <div class="rs rs-ne" @mousedown="startResize('ne', $event)"></div>
+      <div class="rs rs-nw" @mousedown="startResize('nw', $event)"></div>
+      <div class="rs rs-se" @mousedown="startResize('se', $event)"></div>
+      <div class="rs rs-sw" @mousedown="startResize('sw', $event)"></div>
+    </div>
   </div>
 </template>
 
@@ -639,8 +713,10 @@ onUnmounted(() => {
 
 .chat-bubble {
   position: relative;
-  width: 340px;
-  max-height: 480px;
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  max-width: 520px;
+  max-height: 720px;
   background: rgba(255, 255, 255, 0.97);
   backdrop-filter: blur(16px);
   border-radius: 20px;
@@ -650,6 +726,31 @@ onUnmounted(() => {
   overflow: hidden;
   margin: 8px;
 }
+
+/* 四周透明 resize 热区（无背景无半透明像素，只提供光标与拖拽） */
+.chat-resize-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.chat-resize-frame .rs {
+  position: absolute;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.rs-n, .rs-s { left: 10px; right: 10px; height: 8px; }
+.rs-e, .rs-w { top: 10px; bottom: 10px; width: 8px; }
+.rs-n { top: 0; cursor: n-resize; }
+.rs-s { bottom: 0; cursor: s-resize; }
+.rs-e { right: 0; cursor: e-resize; }
+.rs-w { left: 0; cursor: w-resize; }
+.rs-ne { top: 0; right: 0; width: 14px; height: 14px; cursor: ne-resize; }
+.rs-nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nw-resize; }
+.rs-se { bottom: 0; right: 0; width: 14px; height: 14px; cursor: se-resize; }
+.rs-sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: sw-resize; }
 
 /* Bubble tail - left (window on right of pet) */
 .chat-bubble.tail-left::before {
