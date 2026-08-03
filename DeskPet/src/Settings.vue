@@ -25,6 +25,11 @@ const aiImageGenApiKey = ref('')
 const weatherApiKey = ref('')
 const weatherCity = ref('')
 
+// 主动搭话配置（剪贴板感知默认关闭，保护隐私）
+const initiativeNight = ref(true)
+const initiativeBattery = ref(true)
+const initiativeClipboard = ref(false)
+
 const rendererType = ref<RendererType>('spritesheet')
 const spriteSrc = ref('/pet/pet_spritesheet.png')
 const spriteJsonSrc = ref('/pet/pet_spritesheet.json')
@@ -140,6 +145,15 @@ async function loadLocalStorage() {
   answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
   weatherApiKey.value = localStorage.getItem('deskpet_weather_api_key') || ''
   weatherCity.value = localStorage.getItem('deskpet_weather_city') || ''
+  try {
+    const saved = localStorage.getItem('deskpet_initiative_config')
+    if (saved) {
+      const cfg = JSON.parse(saved)
+      initiativeNight.value = cfg.nightGreeting !== undefined ? cfg.nightGreeting : true
+      initiativeBattery.value = cfg.batteryAlert !== undefined ? cfg.batteryAlert : true
+      initiativeClipboard.value = cfg.clipboardSense === true
+    }
+  } catch {}
   try {
     const saved = localStorage.getItem('deskpet_appearance')
     if (saved) appearance.value = { ...appearance.value, ...JSON.parse(saved) }
@@ -333,6 +347,25 @@ async function saveWeatherConfig() {
   } catch (e: any) {
     showError('配置失败: ' + (e as string))
   }
+}
+
+async function saveInitiativeConfig() {
+  localStorage.setItem('deskpet_initiative_config', JSON.stringify({
+    nightGreeting: initiativeNight.value,
+    batteryAlert: initiativeBattery.value,
+    clipboardSense: initiativeClipboard.value,
+  }))
+  try {
+    await invoke('set_initiative_config', {
+      nightGreeting: initiativeNight.value,
+      clipboardSense: initiativeClipboard.value,
+      batteryAlert: initiativeBattery.value,
+    })
+  } catch (e: any) {
+    showError('同步失败: ' + (e as string))
+  }
+  await emit('settings-updated', { section: 'initiative' })
+  showSuccess('主动搭话设置已保存')
 }
 
 async function saveAppearance() {
@@ -654,6 +687,24 @@ async function renameGhost() {
             <p class="field-hint">免费注册：openweathermap.org。填好后桌宠聊天时会感知窗外天气</p>
             <button @click="saveWeatherConfig" class="btn btn-generate btn-full">保存</button>
           </div>
+        </div>
+
+        <!-- 主动搭话 -->
+        <div class="settings-section">
+          <div class="settings-section-title">🗣️ 主动搭话</div>
+          <div class="settings-desc">桌宠会在合适的时候主动开口说话，而不是只等你来</div>
+          <label class="toggle-row">
+            <span class="toggle-label">深夜问候 <span class="toggle-sub">每晚 22:00~2:00 提醒你早点睡</span></span>
+            <input type="checkbox" v-model="initiativeNight" @change="saveInitiativeConfig" />
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-label">低电量提醒 <span class="toggle-sub">笔记本电池 ≤20% 时提醒充电（台式机自动不触发）</span></span>
+            <input type="checkbox" v-model="initiativeBattery" @change="saveInitiativeConfig" />
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-label">剪贴板感知 <span class="toggle-sub">偶尔"偷看"你复制的内容搭话（默认关闭，仅对链接/长文本触发）</span></span>
+            <input type="checkbox" v-model="initiativeClipboard" @change="saveInitiativeConfig" />
+          </label>
         </div>
 
         <!-- Appearance -->
@@ -1442,6 +1493,40 @@ async function renameGhost() {
   width: 16px;
   height: 16px;
   accent-color: #ff6b9d;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 1px dashed #eee;
+}
+
+.toggle-row:last-child {
+  border-bottom: none;
+}
+
+.toggle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-sub {
+  font-size: 11px;
+  color: #aaa;
+  font-weight: normal;
+}
+
+.toggle-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #ff6b9d;
+  flex-shrink: 0;
 }
 
 .tts-rate-panel {

@@ -15,6 +15,7 @@ use crate::services::sentiment_service::{parse_event_type, SentimentAnalyzer};
 use crate::services::memory_compressor::MemoryCompressor;
 use crate::services::timeline_service::TimelineState;
 use crate::services::weather_service::WeatherCache;
+use crate::services::initiative_service::{InitiativeConfig, InitiativeService, InitiativeState};
 
 /// API Key 掩码占位符：前端未修改密钥时传回此值，后端保留已存储的密钥。
 pub const KEY_MASK: &str = "********";
@@ -27,6 +28,8 @@ pub struct AppState {
     pub screenshot_data: Mutex<Option<String>>,
     pub answering_mode: Mutex<AnsweringMode>,
     pub weather: Mutex<WeatherCache>,
+    pub initiative_config: Mutex<InitiativeConfig>,
+    pub initiative_state: Mutex<InitiativeState>,
 }
 
 #[tauri::command]
@@ -1205,6 +1208,117 @@ pub fn get_achievements(state: State<'_, AppState>) -> Result<serde_json::Value,
         "achievements": achievements,
         "total": achievements.len(),
     }))
+}
+
+/// 设置主动搭话配置（深夜问候/剪贴板感知/低电量提醒）
+#[tauri::command]
+pub fn set_initiative_config(
+    night_greeting: Option<bool>,
+    clipboard_sense: Option<bool>,
+    battery_alert: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut locked = state.initiative_config.lock().map_err(|e| e.to_string())?;
+    if let Some(v) = night_greeting {
+        locked.night_greeting = v;
+    }
+    if let Some(v) = clipboard_sense {
+        locked.clipboard_sense = v;
+    }
+    if let Some(v) = battery_alert {
+        locked.battery_alert = v;
+    }
+    Ok(())
+}
+
+/// 主动搭话调度 tick（前端每 60s 调用一次）：
+/// 检测触发源（深夜/低电量/剪贴板）→ AI 生成一句搭话 → 持久化 → 推送 initiative-message 事件。
+/// AI 未配置或生成失败时使用兜底文案，保证功能不依赖网络也能工作。
+#[tauri::command]
+pub async fn initiative_tick(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let config = {
+        let locked = state.initiative_config.lock().map_err(|e| e.to_string())?;
+        locked.clone()
+    };
+    let trigger = {
+        let mut init_state = state.initiative_state.lock().map_err(|e| e.to_string())?;
+        match InitiativeService::check_triggers(&mut init_state, &config) {
+            Some(t) => t,
+            None => return Ok(()),
+        }
+    };
+
+    let (ghost_id, ghost_name, love_hate, personality_desc) = {
+        let locked = state.ghost.lock().map_err(|e| e.to_string())?;
+        match locked.as_ref() {
+            Some(g) => (
+                g.ghost_id.clone(),
+                g.name.clone(),
+                g.soul.sensibility.love_hate,
+                g.soul.get_personality_description(),
+            ),
+            None => return Ok(()),
+        }
+    };
+
+    // AI 生成搭话文案（失败/未配置 → 兜底文案）
+    let text = {
+        let ai_config = state
+            .ai_config
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone();
+        if let Some(cfg) = ai_config {
+            let system = format!(
+                "你是{}，一只生活在桌面上的小精灵。{} 当前你对主人的好感度：{:.0}。\n\
+                 现在场景：{}。\n\
+                 请以这个桌宠的口吻，用1~2句话自然地向主人搭话，30字以内，口语化，\
+                 像真实的朋友随口说的话。不要自称AI，不要解释原因，不要加引号。",
+                ghost_name,
+                personality_desc,
+                love_hate,
+                trigger.scene_description()
+            );
+            let ai = AIService::new(cfg);
+            match ai.chat(&system, &[]).await {
+                Ok(reply) => {
+                    let trimmed = reply.trim().trim_matches('"').trim().to_string();
+                    if trimmed.is_empty() {
+                        trigger.fallback_text(love_hate)
+                    } else {
+                        trimmed
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[主动搭话] AI生成失败，使用兜底文案: {}", e);
+                    trigger.fallback_text(love_hate)
+                }
+            }
+        } else {
+            trigger.fallback_text(love_hate)
+        }
+    };
+
+    // 持久化到聊天记录（打开对话窗口后可见）
+    {
+        let msg_id = uuid::Uuid::new_v4().to_string();
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        if let Some(db) = db_guard.as_ref() {
+            let _ = db.save_chat_message(&msg_id, &ghost_id, "pet", &text);
+        }
+    }
+
+    // 推送给前端：主窗口气泡 + TTS
+    app.emit(
+        "initiative-message",
+        serde_json::json!({ "text": text, "trigger": format!("{:?}", trigger) }),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 /// 将毫秒级 Unix 时间戳格式化为带毫秒的 ISO8601 字符串（UTC），如 "2026-07-06 12:34:56.789"

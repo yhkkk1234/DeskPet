@@ -9,3 +9,4 @@ pub mod tts_service;
 pub mod weather_service;
 pub mod extract_service;
 pub mod summarize_service;
+pub mod initiative_service;

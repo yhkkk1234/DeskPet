@@ -36,6 +36,8 @@ pub fn run() {
         screenshot_data: Mutex::new(None),
         answering_mode: Mutex::new(AnsweringMode::Companion),
         weather: Mutex::new(WeatherCache::default()),
+        initiative_config: Mutex::new(Default::default()),
+        initiative_state: Mutex::new(Default::default()),
     };
 
     tauri::Builder::default()
@@ -86,6 +88,8 @@ pub fn run() {
             commands::chat_commands::get_achievements,
             commands::chat_commands::generate_diary,
             commands::chat_commands::get_diary_entries,
+            commands::chat_commands::set_initiative_config,
+            commands::chat_commands::initiative_tick,
             commands::screenshot_commands::capture_screenshot,
             commands::screenshot_commands::get_virtual_screen_bounds,
             commands::screenshot_commands::analyze_screenshot,

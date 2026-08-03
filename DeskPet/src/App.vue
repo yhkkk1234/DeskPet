@@ -65,7 +65,7 @@ const ghost = ref<GhostStatus | null>(null)
 const loading = ref(false)
 const error = ref('')
 
-const { ghostId, pushSystemMessage, clearMessages, loadHistory } = useChat()
+const { ghostId, pushSystemMessage, clearMessages, loadHistory, pushPetMessage, ttsEnabled, ttsRate, ttsPitch, ttsEngine, ttsVoice } = useChat()
 const chatLoading = ref(false)
 const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, stopBlink, holdAnimation, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation()
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, framePositions, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
@@ -371,10 +371,54 @@ const asleep = ref(false)
 let sleepRelease: (() => void) | null = null
 let diaryInProgress = false
 let autoSaveInterval: ReturnType<typeof setInterval> | null = null
+
+// ===== 主动搭话（深夜问候/低电量/剪贴板感知）=====
+const speechBubble = ref('')
+let speechBubbleTimer: ReturnType<typeof setTimeout> | null = null
+
+function showSpeechBubble(text: string) {
+  speechBubble.value = text
+  if (speechBubbleTimer) clearTimeout(speechBubbleTimer)
+  speechBubbleTimer = setTimeout(() => { speechBubble.value = '' }, 5000)
+}
+
+async function syncInitiativeConfig() {
+  try {
+    const saved = localStorage.getItem('deskpet_initiative_config')
+    const cfg = saved ? JSON.parse(saved) : {}
+    await invoke('set_initiative_config', {
+      nightGreeting: cfg.nightGreeting !== undefined ? cfg.nightGreeting : true,
+      clipboardSense: cfg.clipboardSense === true,
+      batteryAlert: cfg.batteryAlert !== undefined ? cfg.batteryAlert : true,
+    })
+  } catch (e) {
+    console.warn('同步主动搭话配置失败:', e)
+  }
+}
+
+function loadTTSFromStorage() {
+  ttsEnabled.value = localStorage.getItem('deskpet_tts_enabled') === 'true'
+  ttsRate.value = parseFloat(localStorage.getItem('deskpet_tts_rate') || '1.0')
+  ttsPitch.value = parseFloat(localStorage.getItem('deskpet_tts_pitch') || '1.1')
+  ttsEngine.value = (localStorage.getItem('deskpet_tts_engine') as 'system' | 'edge') || 'system'
+  ttsVoice.value = localStorage.getItem('deskpet_tts_voice') || 'zh-CN-XiaoxiaoNeural'
+}
+
+async function runInitiativeTick() {
+  if (!ghost.value) return
+  try {
+    await invoke('initiative_tick')
+  } catch (e) {
+    console.warn('主动搭话 tick 失败:', e)
+  }
+}
+let initiativeInterval: ReturnType<typeof setInterval> | null = null
 let hotkeyUnlisten: (() => void) | null = null
 let chatHotkeyUnlisten: (() => void) | null = null
 let settingsHotkeyUnlisten: (() => void) | null = null
 let quitHotkeyUnlisten: (() => void) | null = null
+let initiativeMessageUnlisten: (() => void) | null = null
+let ttsUpdatedUnlisten: (() => void) | null = null
 let chatPostProcessedUnlisten: (() => void) | null = null
 let chatTokenUnlisten: (() => void) | null = null
 let chatCompleteUnlisten: (() => void) | null = null
@@ -499,6 +543,9 @@ onMounted(async () => {
 
   tickInterval = setInterval(tickGhost, 5000)
   autoSaveInterval = setInterval(autoSaveGhost, 120000)
+  initiativeInterval = setInterval(runInitiativeTick, 60000)
+  syncInitiativeConfig()
+  loadTTSFromStorage()
 
   try {
     const found = await invoke<{ found: boolean; path: string }>('find_last_ghost')
@@ -532,6 +579,23 @@ onMounted(async () => {
     await win.close()
   })
 
+  initiativeMessageUnlisten = await listen('initiative-message', (event: any) => {
+    const payload = event.payload as { text: string; trigger: string }
+    if (!payload?.text) return
+    // 主窗口气泡 + TTS + 持久化（chatMessages 可见）
+    showSpeechBubble(payload.text)
+    pushPetMessage(payload.text)
+  })
+
+  ttsUpdatedUnlisten = await listen('tts-updated', (event: any) => {
+    const cfg = event.payload || {}
+    if (typeof cfg.enabled === 'boolean') ttsEnabled.value = cfg.enabled
+    if (typeof cfg.rate === 'number') ttsRate.value = cfg.rate
+    if (typeof cfg.pitch === 'number') ttsPitch.value = cfg.pitch
+    if (cfg.engine === 'system' || cfg.engine === 'edge') ttsEngine.value = cfg.engine
+    if (typeof cfg.voice === 'string') ttsVoice.value = cfg.voice
+  })
+
   settingsUpdatedUnlisten = await listen('settings-updated', async (event: any) => {
     const section = event.payload?.section
     if (section === 'renderer') {
@@ -549,6 +613,8 @@ onMounted(async () => {
       answeringMode.value = (localStorage.getItem('deskpet_answering_mode') as 'Companion' | 'Assistant') || 'Companion'
     } else if (section === 'appearance') {
       petAppearance.value = loadAppearance()
+    } else if (section === 'initiative') {
+      syncInitiativeConfig()
     }
   })
 
@@ -669,12 +735,16 @@ onUnmounted(() => {
   autoSaveGhost()
   if (tickInterval) clearInterval(tickInterval)
   if (autoSaveInterval) clearInterval(autoSaveInterval)
+  if (initiativeInterval) clearInterval(initiativeInterval)
+  if (speechBubbleTimer) clearTimeout(speechBubbleTimer)
   if (transferAnimInterval) clearInterval(transferAnimInterval)
   if (cursorPollId) cancelAnimationFrame(cursorPollId)
   if (hotkeyUnlisten) hotkeyUnlisten()
   if (chatHotkeyUnlisten) chatHotkeyUnlisten()
   if (settingsHotkeyUnlisten) settingsHotkeyUnlisten()
   if (quitHotkeyUnlisten) quitHotkeyUnlisten()
+  if (initiativeMessageUnlisten) initiativeMessageUnlisten()
+  if (ttsUpdatedUnlisten) ttsUpdatedUnlisten()
   if (settingsUpdatedUnlisten) settingsUpdatedUnlisten()
   if (requestTransferUnlisten) requestTransferUnlisten()
   if (screenshotCapturedUnlisten) screenshotCapturedUnlisten()
@@ -1053,6 +1123,13 @@ const transferParticles = computed(() => {
     <!-- Pet column: fixed-width container so pet doesn't shift on window resize -->
     <div class="pet-column" ref="petColumnRef" @mouseenter="onHover(true)" @mouseleave="onHover(false)">
       <div class="pet-area" @click="handlePetClick" @mousedown.prevent="onPetMouseDown">
+        <!-- 主动搭话气泡：宠物上方浮现 -->
+        <transition name="bubble-pop">
+          <div v-if="speechBubble" class="speech-bubble" @click.stop="openChatWindow">
+            <span class="speech-bubble-text">{{ speechBubble }}</span>
+            <div class="speech-bubble-tail"></div>
+          </div>
+        </transition>
         <PetRenderer
           :animation-state="currentAnimationState"
           :mood-config="moodConfig"
@@ -1258,6 +1335,55 @@ const transferParticles = computed(() => {
 }
 
 /* Bubble dialogue */
+/* 主动搭话气泡 */
+.speech-bubble {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 220px;
+  min-width: 60px;
+  margin-bottom: 6px;
+  padding: 7px 12px;
+  background: #fff;
+  border: 2px solid #333;
+  border-radius: 12px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
+  z-index: 20;
+  cursor: pointer;
+  text-align: center;
+}
+
+.speech-bubble-text {
+  font-size: 12px;
+  color: #333;
+  line-height: 1.5;
+  display: block;
+}
+
+.speech-bubble-tail {
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  transform: translateX(-50%) rotate(45deg);
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-right: 2px solid #333;
+  border-bottom: 2px solid #333;
+}
+
+.bubble-pop-enter-active,
+.bubble-pop-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.bubble-pop-enter-from,
+.bubble-pop-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px);
+}
+
 /* Hover toolbar */
 .hover-toolbar {
   position: absolute;
