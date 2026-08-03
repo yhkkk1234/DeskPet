@@ -58,20 +58,23 @@ export function useWindowManager(deps: WindowManagerDeps) {
       }
       let chatWin = await WebviewWindow.getByLabel('chat')
       if (!chatWin) {
-        chatWin = new WebviewWindow('chat', {
-          url: 'chat.html',
-          title: 'DeskPet - 对话',
-          width: 360,
-          height: 500,
-          minWidth: 300,
-          minHeight: 300,
-          resizable: true,
-          transparent: true,
-          decorations: false,
-          alwaysOnTop: true,
-          skipTaskbar: false,
-          visible: false,
-        })
+      chatWin = new WebviewWindow('chat', {
+        url: 'chat.html',
+        title: 'DeskPet - 对话',
+        width: 360,
+        height: 500,
+        minWidth: 300,
+        minHeight: 300,
+        // resizable: false —— 禁用系统边缘拖拽（透明窗口看不见边缘，且系统 resize 与
+        // WebView 内容可能不同步导致气泡不跟随）。resize 由 ChatWindow 内的
+        // 透明热区（气泡边缘）通过 setSize API 驱动，该路径已验证气泡同步跟随。
+        resizable: false,
+        transparent: true,
+        decorations: false,
+        alwaysOnTop: true,
+        skipTaskbar: false,
+        visible: false,
+      })
         // 兜底：若 label 冲突（理论上已被 chatOpening 拦住，此处为双保险）
         // 导致 Rust 侧创建失败，捕获 tauri://error 并清理可能已显示的僵尸窗口。
         chatWin.once('tauri://error', (e: any) => {
