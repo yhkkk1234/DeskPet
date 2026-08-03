@@ -57,11 +57,6 @@ const transcribing = ref(false)
 const recordingSeconds = ref(0)
 let recordingTimer: ReturnType<typeof setInterval> | null = null
 
-// ===== 窗口拉伸说明 =====
-// 窗口 resizable:true 但 decorations:false（无边框），Windows 下无边框窗口
-// 仍保留系统边缘拉伸能力（WS_THICKFRAME），直接拖窗口边缘即可调整大小。
-// 注：不提供自定义拉伸手柄——透明窗口上任何半透明像素都会显示为灰色雾霾。
-
 async function toggleRecording() {
   if (recording.value) {
     await stopAndTranscribe()
@@ -644,16 +639,11 @@ onUnmounted(() => {
 
 .chat-bubble {
   position: relative;
-  width: calc(100% - 16px);
-  height: calc(100% - 16px);
-  max-width: 520px;
-  max-height: 720px;
+  width: 340px;
+  max-height: 480px;
   background: rgba(255, 255, 255, 0.97);
   backdrop-filter: blur(16px);
   border-radius: 20px;
-  /* 阴影是气泡的边界感来源：白色桌面上没有阴影会混在一起。
-     阴影的半透明像素在透明窗口中正常显示为柔和灰圈（这是设计效果，
-     不是 bug——只要不添加手柄之类的额外半透明元素就不会显得突兀） */
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
