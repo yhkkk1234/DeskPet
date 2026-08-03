@@ -685,39 +685,38 @@ onUnmounted(() => {
 
 .chat-resize-handle {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 18px;
-  height: 18px;
+  right: 5px;
+  bottom: 5px;
+  width: 14px;
+  height: 14px;
   cursor: nwse-resize;
   z-index: 100;
-  background: linear-gradient(
-    135deg,
-    transparent 0%,
-    transparent 50%,
-    rgba(120, 120, 120, 0.45) 50%,
-    rgba(120, 120, 120, 0.45) 60%,
-    transparent 60%
-  );
-  border-top-left-radius: 8px;
-  transition: background 0.15s;
+  background: transparent;
 }
 
-.chat-resize-handle:hover {
-  background: linear-gradient(
-    135deg,
-    transparent 0%,
-    transparent 50%,
-    rgba(255, 107, 157, 0.7) 50%,
-    rgba(255, 107, 157, 0.7) 60%,
-    transparent 60%
-  );
+.chat-resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(0, 0, 0, 0.12);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+  transition: border-color 0.15s;
+}
+
+.chat-resize-handle:hover::after {
+  border-color: rgba(255, 107, 157, 0.7);
 }
 
 .chat-bubble {
   position: relative;
-  width: 340px;
-  max-height: 480px;
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  max-width: 520px;
+  max-height: 720px;
   background: rgba(255, 255, 255, 0.97);
   backdrop-filter: blur(16px);
   border-radius: 20px;
