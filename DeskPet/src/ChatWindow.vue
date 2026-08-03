@@ -648,10 +648,13 @@ onUnmounted(() => {
   height: calc(100% - 16px);
   max-width: 520px;
   max-height: 720px;
-  /* 纯白背景：透明窗口下任何半透明像素（box-shadow/backdrop-filter/alpha 背景）
-     都会显示为灰色雾霾，所以全部移除，窗口保持完全透明只有对话界面可见 */
-  background: #fff;
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(16px);
   border-radius: 20px;
+  /* 阴影是气泡的边界感来源：白色桌面上没有阴影会混在一起。
+     阴影的半透明像素在透明窗口中正常显示为柔和灰圈（这是设计效果，
+     不是 bug——只要不添加手柄之类的额外半透明元素就不会显得突兀） */
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -668,8 +671,8 @@ onUnmounted(() => {
   height: 0;
   border-top: 9px solid transparent;
   border-bottom: 9px solid transparent;
-  border-right: 14px solid #fff;
-  
+  border-right: 14px solid rgba(255, 255, 255, 0.97);
+  filter: drop-shadow(-1px 0 2px rgba(0, 0, 0, 0.06));
   z-index: 1;
 }
 
@@ -683,8 +686,8 @@ onUnmounted(() => {
   height: 0;
   border-top: 9px solid transparent;
   border-bottom: 9px solid transparent;
-  border-left: 14px solid #fff;
-  
+  border-left: 14px solid rgba(255, 255, 255, 0.97);
+  filter: drop-shadow(1px 0 2px rgba(0, 0, 0, 0.06));
   z-index: 1;
 }
 
