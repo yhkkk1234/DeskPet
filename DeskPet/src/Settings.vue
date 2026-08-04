@@ -10,6 +10,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import type { RendererType } from './composables/usePetRenderer'
 import EmotionTimeline from './components/EmotionTimeline.vue'
 import { getVirtualScreenBounds, clampToVirtualScreen } from './composables/useScreenBounds'
+import { THEMES, useTheme } from './composables/useTheme'
 
 /** 与后端 KEY_MASK 保持一致：密钥未修改时传回占位符，后端保留已保存的密钥 */
 const KEY_MASK = '********'
@@ -64,6 +65,8 @@ const appearance = ref({
   opacity: 1,
   scale: 1,
 })
+
+const { theme: currentTheme, setTheme } = useTheme()
 
 watch(appearance, (val) => {
   localStorage.setItem('deskpet_appearance', JSON.stringify(val))
@@ -809,6 +812,32 @@ async function renameGhost() {
           </label>
         </div>
 
+        <!-- Theme -->
+        <div class="settings-section">
+          <div class="settings-section-title">🌈 主题</div>
+          <div class="settings-desc">选择喜欢的界面风格，聊天窗口、气泡与设置界面会同步换肤</div>
+          <div class="theme-grid">
+            <button
+              v-for="t in THEMES"
+              :key="t.key"
+              class="theme-card"
+              :class="{ 'theme-card-active': currentTheme === t.key }"
+              @click="setTheme(t.key)"
+            >
+              <span class="theme-preview" :style="{ background: t.previewBg }">
+                <span class="theme-preview-sun" :style="{ background: t.primary }"></span>
+                <span class="theme-preview-bubble" :style="{ borderColor: t.primary, color: t.previewText }">Hi</span>
+                <span class="theme-preview-bar" :style="{ background: t.secondary }"></span>
+              </span>
+              <span class="theme-meta">
+                <span class="theme-name">{{ t.name }}</span>
+                <span class="theme-desc">{{ t.desc }}</span>
+              </span>
+              <span v-if="currentTheme === t.key" class="theme-check">✓</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Appearance -->
         <div class="settings-section">
           <div class="settings-section-title">🎨 外观</div>
@@ -1146,15 +1175,16 @@ async function renameGhost() {
   box-sizing: border-box;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 13px;
-  color: #333;
+  color: var(--t-text, #333);
   user-select: none;
 }
 
 .settings-card {
-  background: rgba(255, 255, 255, 0.97);
-  backdrop-filter: blur(16px);
-  border-radius: 20px;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  background: var(--t-panel-bg, rgba(255, 255, 255, 0.97));
+  backdrop-filter: blur(var(--t-panel-blur, 16px));
+  border-radius: var(--t-panel-radius, 20px);
+  box-shadow: var(--t-panel-shadow, 0 2px 16px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--t-panel-border, transparent);
   width: calc(100% - 48px);
   height: calc(100% - 48px);
   display: flex;
@@ -1193,7 +1223,7 @@ async function renameGhost() {
   align-items: center;
   justify-content: space-between;
   padding: 14px 18px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--t-divider, rgba(0, 0, 0, 0.06));
   -webkit-app-region: drag;
 }
 
@@ -1204,7 +1234,7 @@ async function renameGhost() {
 .settings-title {
   font-size: 15px;
   font-weight: 700;
-  color: #333;
+  color: var(--t-header-text, #333);
 }
 
 .settings-close {
@@ -1213,7 +1243,7 @@ async function renameGhost() {
   border: none;
   background: transparent;
   border-radius: 8px;
-  color: #999;
+  color: var(--t-text-3, var(--t-text-3, #999));
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1223,8 +1253,8 @@ async function renameGhost() {
 }
 
 .settings-close:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #333;
+  background: var(--t-bg-2, rgba(0, 0, 0, 0.06));
+  color: var(--t-header-text, #333);
 }
 
 .settings-body {
@@ -1244,7 +1274,7 @@ async function renameGhost() {
 }
 
 .settings-body::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--t-scroll-thumb, rgba(0, 0, 0, 0.15));
   border-radius: 2px;
 }
 
@@ -1257,7 +1287,7 @@ async function renameGhost() {
 .settings-section-title {
   font-size: 11px;
   font-weight: 700;
-  color: #888;
+  color: var(--t-settings-title, var(--t-text-3, #888));
   text-transform: uppercase;
   letter-spacing: 0.6px;
 }
@@ -1286,7 +1316,7 @@ async function renameGhost() {
 }
 
 .btn-generate {
-  background: linear-gradient(135deg, #ff6b9d, #c084fc);
+  background: var(--t-gradient, linear-gradient(135deg, var(--t-primary, #ff6b9d), var(--t-secondary, #c084fc)));
   color: white;
   border: none;
   padding: 8px 16px;
@@ -1308,16 +1338,16 @@ async function renameGhost() {
 }
 
 .btn-secondary {
-  background: #e8e8e8;
-  color: #555;
+  background: var(--t-btn-bg, #e8e8e8);
+  color: var(--t-text-2, var(--t-text-2, #555));
 }
 
 .btn-secondary:hover {
-  background: #ddd;
+  background: var(--t-btn-hover-bg, var(--t-border, #ddd));
 }
 
 .btn-accent {
-  background: linear-gradient(135deg, #ff6b9d, #c084fc);
+  background: var(--t-gradient, linear-gradient(135deg, var(--t-primary, #ff6b9d), var(--t-secondary, #c084fc)));
   color: white;
 }
 
@@ -1327,25 +1357,27 @@ async function renameGhost() {
 
 .settings-desc {
   font-size: 11px;
-  color: #999;
+  color: var(--t-text-3, var(--t-text-3, #999));
   padding-bottom: 6px;
 }
 
 .persona-input {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--t-input-border, var(--t-border, #ddd));
   border-radius: 8px;
   font-size: 12px;
   font-family: inherit;
   resize: vertical;
   box-sizing: border-box;
   line-height: 1.5;
+  background: var(--t-input-bg, #fff);
+  color: var(--t-text, #333);
 }
 
 .persona-input:focus {
   outline: none;
-  border-color: #4a90d9;
+  border-color: var(--t-input-focus, #4a90d9);
 }
 
 .persona-actions {
@@ -1363,30 +1395,31 @@ async function renameGhost() {
 .config-label {
   font-size: 10px;
   font-weight: 600;
-  color: #888;
+  color: var(--t-text-3, #888);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .config-input {
   padding: 5px 10px;
-  border: 1.5px solid rgba(192, 132, 252, 0.2);
+  border: 1.5px solid var(--t-input-border, rgba(192, 132, 252, 0.2));
   border-radius: 6px;
   font-size: 12px;
   outline: none;
   transition: border-color 0.2s;
-  background: #fff;
+  background: var(--t-input-bg, #fff);
+  color: var(--t-text, #333);
   width: 100%;
   box-sizing: border-box;
 }
 
 .config-input:focus {
-  border-color: #c084fc;
+  border-color: var(--t-input-focus, var(--t-secondary, #c084fc));
 }
 
 .ai-config {
-  background: rgba(192, 132, 252, 0.06);
-  border: 1px solid rgba(192, 132, 252, 0.15);
+  background: var(--t-config-bg, rgba(192, 132, 252, 0.06));
+  border: 1px solid var(--t-config-border, rgba(192, 132, 252, 0.15));
   border-radius: 10px;
   padding: 10px;
   display: flex;
@@ -1396,7 +1429,7 @@ async function renameGhost() {
 
 .field-hint {
   font-size: 10px;
-  color: #4caf50;
+  color: var(--t-hint, #4caf50);
   margin: 0;
 }
 
@@ -1410,25 +1443,25 @@ async function renameGhost() {
 }
 .test-result.success {
   background: rgba(76, 175, 80, 0.12);
-  color: #2e7d32;
+  color: var(--t-hint, #2e7d32);
   border: 1px solid rgba(76, 175, 80, 0.3);
 }
 .test-result.error {
   background: rgba(244, 67, 54, 0.12);
-  color: #c62828;
+  color: var(--t-error-text, #c62828);
   border: 1px solid rgba(244, 67, 54, 0.3);
 }
 
 .config-divider {
   height: 1px;
-  background: rgba(192, 132, 252, 0.15);
+  background: var(--t-config-border, rgba(192, 132, 252, 0.15));
   margin: 4px 0;
 }
 
 .config-subtitle {
   font-size: 11px;
   font-weight: 600;
-  color: #c084fc;
+  color: var(--t-secondary, var(--t-secondary, #c084fc));
 }
 
 .renderer-buttons {
@@ -1443,14 +1476,14 @@ async function renameGhost() {
   cursor: pointer;
   border: 1px solid transparent;
   color: white;
-  background: linear-gradient(135deg, #ff6b9d, #c084fc);
+  background: var(--t-gradient, linear-gradient(135deg, var(--t-primary, #ff6b9d), var(--t-secondary, #c084fc)));
   flex: 1;
 }
 
 .btn-ren-off {
-  background: #f0f0f0;
-  color: #666;
-  border: 1px solid #ddd;
+  background: var(--t-btn-bg, var(--t-btn-bg, #f0f0f0));
+  color: var(--t-text-2, var(--t-text-2, #666));
+  border: 1px solid var(--t-border, var(--t-border, #ddd));
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 8px;
@@ -1479,10 +1512,10 @@ async function renameGhost() {
 
 .curiosity-status {
   font-size: 12px;
-  color: #555;
+  color: var(--t-text-2, #555);
 }
 
-.curiosity-off { color: #aaa; }
+.curiosity-off { color: var(--t-text-3, #aaa); }
 .curiosity-normal { color: #4caf50; }
 .curiosity-enhanced { color: #7c4dff; font-weight: 700; }
 .answering-companion { color: #ff9800; font-weight: 600; }
@@ -1494,7 +1527,7 @@ async function renameGhost() {
   gap: 6px;
   margin-top: 4px;
   padding-top: 10px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--t-divider, rgba(0, 0, 0, 0.06));
 }
 
 .curiosity-levels {
@@ -1503,9 +1536,9 @@ async function renameGhost() {
 }
 
 .btn-cur-off {
-  background: #f0f0f0;
-  color: #666;
-  border: 1px solid #ddd;
+  background: var(--t-btn-bg, #f0f0f0);
+  color: var(--t-text-2, #666);
+  border: 1px solid var(--t-border, #ddd);
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 8px;
@@ -1524,7 +1557,7 @@ async function renameGhost() {
   background: #4caf50;
 }
 
-.btn-cur-off:hover { background: #e5e5e5; }
+.btn-cur-off:hover { background: var(--t-btn-hover-bg, #e5e5e5); }
 
 .btn-curiosity-trigger {
   background: linear-gradient(135deg, #4caf50, #8bc34a);
@@ -1556,7 +1589,7 @@ async function renameGhost() {
 
 .btn-save {
   flex: 1;
-  background: #e3f2fd;
+  background: rgba(33, 150, 243, 0.12);
   color: #1565c0;
   border: 1px solid #90caf9;
   font-size: 11px;
@@ -1572,7 +1605,7 @@ async function renameGhost() {
 
 .btn-load {
   flex: 1;
-  background: #f3e5f5;
+  background: rgba(156, 39, 176, 0.1);
   color: #7b1fa2;
   border: 1px solid #ce93d8;
   font-size: 11px;
@@ -1592,14 +1625,14 @@ async function renameGhost() {
 
 .transfer-desc {
   font-size: 11px;
-  color: #777;
+  color: var(--t-text-2, #777);
   line-height: 1.6;
   margin: 4px 0;
 }
 
 .transfer-warning {
   font-size: 10px;
-  color: #f44336;
+  color: var(--t-error-text, #f44336);
   margin: 2px 0 8px;
 }
 
@@ -1621,10 +1654,10 @@ async function renameGhost() {
 }
 
 .error-msg {
-  color: #f44336;
+  color: var(--t-error-text, #f44336);
   font-size: 11px;
   padding: 6px 8px;
-  background: #ffebee;
+  background: rgba(244, 67, 54, 0.12);
   border-radius: 8px;
 }
 
@@ -1632,7 +1665,7 @@ async function renameGhost() {
   color: #4caf50;
   font-size: 11px;
   padding: 6px 8px;
-  background: #e8f5e9;
+  background: rgba(76, 175, 80, 0.14);
   border-radius: 8px;
 }
 
@@ -1653,7 +1686,7 @@ async function renameGhost() {
 .tts-toggle input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #ff6b9d;
+  accent-color: var(--t-primary, #ff6b9d);
 }
 
 .toggle-row {
@@ -1664,7 +1697,7 @@ async function renameGhost() {
   padding: 8px 0;
   font-size: 13px;
   cursor: pointer;
-  border-bottom: 1px dashed #eee;
+  border-bottom: 1px dashed var(--t-border, #eee);
 }
 
 .toggle-row:last-child {
@@ -1679,14 +1712,14 @@ async function renameGhost() {
 
 .toggle-sub {
   font-size: 11px;
-  color: #aaa;
+  color: var(--t-text-3, #aaa);
   font-weight: normal;
 }
 
 .toggle-row input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #ff6b9d;
+  accent-color: var(--t-primary, #ff6b9d);
   flex-shrink: 0;
 }
 
@@ -1704,28 +1737,28 @@ async function renameGhost() {
 
 .tts-slider {
   flex: 1;
-  accent-color: #ff6b9d;
+  accent-color: var(--t-primary, #ff6b9d);
 }
 
 .tts-rate-value {
   font-size: 12px;
-  color: #666;
+  color: var(--t-text-2, #666);
   min-width: 28px;
 }
 
 .tts-select {
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--t-border, #ccc);
   border-radius: 6px;
   font-size: 13px;
-  background: #fff;
+  background: var(--t-input-bg, #fff);
   color: #333;
 }
 
 .tts-hint {
   font-size: 10px;
-  color: #999;
+  color: var(--t-text-3, #999);
   margin: 0;
 }
 
@@ -1737,13 +1770,13 @@ async function renameGhost() {
 
 .history-hint {
   font-size: 10px;
-  color: #999;
+  color: var(--t-text-3, #999);
   margin: 0;
 }
 
 .btn-danger {
-  background: #ffebee;
-  color: #c62828;
+  background: rgba(244, 67, 54, 0.12);
+  color: var(--t-error-text, #c62828);
   border: 1px solid #ef9a9a;
   padding: 6px 14px;
   border-radius: 8px;
@@ -1761,7 +1794,7 @@ async function renameGhost() {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #666;
+  color: var(--t-text-2, #666);
   padding: 2px 0;
 }
 
@@ -1771,7 +1804,7 @@ async function renameGhost() {
 }
 
 .stat-dim {
-  color: #aaa;
+  color: var(--t-text-3, #aaa);
   font-size: 11px;
 }
 
@@ -1792,21 +1825,21 @@ async function renameGhost() {
 .p-label {
   width: 32px;
   text-align: right;
-  color: #888;
+  color: var(--t-text-3, #888);
   flex-shrink: 0;
 }
 
 .p-bar {
   flex: 1;
   height: 5px;
-  background: #eee;
+  background: var(--t-border, #eee);
   border-radius: 3px;
   overflow: hidden;
 }
 
 .p-fill {
   height: 100%;
-  background: linear-gradient(90deg, #ff6b9d, #c084fc);
+  background: linear-gradient(90deg, var(--t-primary, #ff6b9d), var(--t-secondary, #c084fc));
   border-radius: 3px;
   transition: width 0.5s ease;
 }
@@ -1814,7 +1847,7 @@ async function renameGhost() {
 .p-val {
   width: 26px;
   text-align: right;
-  color: #888;
+  color: var(--t-text-3, #888);
   font-size: 10px;
 }
 
@@ -1836,7 +1869,7 @@ async function renameGhost() {
 .i-label {
   width: 32px;
   text-align: right;
-  color: #888;
+  color: var(--t-text-3, #888);
   flex-shrink: 0;
 }
 
@@ -1844,7 +1877,7 @@ async function renameGhost() {
   position: relative;
   flex: 1;
   height: 6px;
-  background: #f3f3f3;
+  background: var(--t-btn-bg, #f3f3f3);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -1855,7 +1888,7 @@ async function renameGhost() {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #ccc;
+  background: var(--t-border, #ccc);
   z-index: 1;
 }
 
@@ -1872,7 +1905,7 @@ async function renameGhost() {
 }
 
 .i-fill-neg {
-  background: linear-gradient(90deg, #f44336, #ff8a80);
+  background: linear-gradient(90deg, var(--t-error-text, #f44336), #ff8a80);
 }
 
 .i-val {
@@ -1886,7 +1919,7 @@ async function renameGhost() {
 }
 
 .i-val-neg {
-  color: #f44336;
+  color: var(--t-error-text, #f44336);
 }
 
 .impression-snippets {
@@ -1895,28 +1928,28 @@ async function renameGhost() {
   gap: 3px;
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px dashed #e0e0e0;
+  border-top: 1px dashed var(--t-border, #e0e0e0);
 }
 
 .snippets-title {
   font-size: 11px;
-  color: #888;
+  color: var(--t-text-3, #888);
 }
 
 .snippet-item {
   font-size: 12px;
-  color: #555;
+  color: var(--t-text-2, #555);
   line-height: 1.5;
   padding: 3px 6px;
-  background: #fafafa;
+  background: var(--t-btn-bg, #fafafa);
   border-radius: 6px;
-  border-left: 3px solid #c084fc;
+  border-left: 3px solid var(--t-secondary, #c084fc);
 }
 
 .snippets-empty {
   margin-top: 8px;
   font-size: 12px;
-  color: #aaa;
+  color: var(--t-text-3, #aaa);
 }
 
 .event-groups {
@@ -1935,7 +1968,7 @@ async function renameGhost() {
 .event-group-label {
   font-size: 10px;
   font-weight: 600;
-  color: #aaa;
+  color: var(--t-text-3, #aaa);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
@@ -1956,8 +1989,8 @@ async function renameGhost() {
 }
 
 .btn-positive {
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: rgba(76, 175, 80, 0.14);
+  color: var(--t-hint, #2e7d32);
   border: 1px solid #a5d6a7;
 }
 
@@ -1966,18 +1999,18 @@ async function renameGhost() {
 }
 
 .btn-neutral {
-  background: #f5f5f5;
-  color: #666;
-  border: 1px solid #ddd;
+  background: var(--t-btn-bg, #f5f5f5);
+  color: var(--t-text-2, #666);
+  border: 1px solid var(--t-border, #ddd);
 }
 
 .btn-neutral:hover {
-  background: #eee;
+  background: var(--t-border, #eee);
 }
 
 .btn-negative {
-  background: #ffebee;
-  color: #c62828;
+  background: rgba(244, 67, 54, 0.12);
+  color: var(--t-error-text, #c62828);
   border: 1px solid #ef9a9a;
 }
 
@@ -1988,17 +2021,17 @@ async function renameGhost() {
 .diary-empty {
   text-align: center;
   padding: 20px 12px;
-  color: #999;
+  color: var(--t-text-3, #999);
   font-size: 12px;
 }
 
 /* 成就 */
 .achievements-progress {
   font-size: 12px;
-  color: #888;
+  color: var(--t-text-3, #888);
   margin-bottom: 8px;
   padding: 4px 8px;
-  background: #f7f3ff;
+  background: var(--t-config-bg, #f7f3ff);
   border-radius: 8px;
   text-align: center;
 }
@@ -2014,8 +2047,8 @@ async function renameGhost() {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: #fdf6e3;
-  border: 1px solid #f0e0b8;
+  background: var(--t-config-bg, #fdf6e3);
+  border: 1px solid var(--t-config-border, #f0e0b8);
   border-radius: 10px;
   transition: all 0.15s;
 }
@@ -2026,8 +2059,8 @@ async function renameGhost() {
 }
 
 .achievement-card.ach-locked {
-  background: #fafafa;
-  border: 1px dashed #ddd;
+  background: var(--t-btn-bg, #fafafa);
+  border: 1px dashed var(--t-border, #ddd);
   opacity: 0.75;
 }
 
@@ -2048,26 +2081,26 @@ async function renameGhost() {
 }
 
 .ach-locked .ach-name {
-  color: #bbb;
+  color: var(--t-text-3, #bbb);
   letter-spacing: 2px;
 }
 
 .ach-desc {
   font-size: 11px;
-  color: #999;
+  color: var(--t-text-3, #999);
   margin-top: 1px;
 }
 
 .ach-time {
   font-size: 10px;
-  color: #ccc;
+  color: var(--t-border, #ccc);
   margin-top: 2px;
 }
 
 .diary-hint {
   margin-top: 6px;
   font-size: 11px;
-  color: #bbb;
+  color: var(--t-text-3, #bbb);
 }
 
 .diary-list {
@@ -2079,8 +2112,8 @@ async function renameGhost() {
 }
 
 .diary-card {
-  background: #fafafa;
-  border: 1px solid #eee;
+  background: var(--t-btn-bg, #fafafa);
+  border: 1px solid var(--t-border, #eee);
   border-radius: 10px;
   padding: 10px 12px;
   cursor: pointer;
@@ -2088,21 +2121,21 @@ async function renameGhost() {
 }
 
 .diary-card:hover {
-  border-color: #ddd;
-  background: #fff;
+  border-color: var(--t-border, #ddd);
+  background: var(--t-input-bg, #fff);
 }
 
 .diary-date {
   font-size: 11px;
   font-weight: 700;
-  color: #999;
+  color: var(--t-text-3, #999);
   margin-bottom: 4px;
 }
 
 .diary-summary {
   font-size: 12px;
   line-height: 1.6;
-  color: #444;
+  color: var(--t-text, #444);
   white-space: pre-wrap;
   transition: max-height 0.3s ease;
   overflow: hidden;
@@ -2110,13 +2143,13 @@ async function renameGhost() {
 
 .diary-toggle-hint {
   font-size: 10px;
-  color: #ccc;
+  color: var(--t-border, #ccc);
   margin-top: 4px;
   text-align: right;
 }
 
 .diary-card:hover .diary-toggle-hint {
-  color: #aaa;
+  color: var(--t-text-3, #aaa);
 }
 
 .rename-row {
@@ -2129,7 +2162,7 @@ async function renameGhost() {
 
 .rename-label {
   font-size: 11px;
-  color: #999;
+  color: var(--t-text-3, #999);
   min-width: 32px;
 }
 
@@ -2142,24 +2175,24 @@ async function renameGhost() {
 
 .btn-rename-edit {
   background: none;
-  border: 1px solid #ddd;
+  border: 1px solid var(--t-border, #ddd);
   border-radius: 6px;
   padding: 2px 8px;
   cursor: pointer;
   font-size: 12px;
-  color: #999;
+  color: var(--t-text-3, #999);
   transition: all 0.15s;
 }
 
 .btn-rename-edit:hover {
-  border-color: #aaa;
-  color: #555;
+  border-color: var(--t-text-3, #aaa);
+  color: var(--t-text-2, #555);
 }
 
 .rename-input {
   flex: 1;
   padding: 4px 8px;
-  border: 2px solid #ff6b9d;
+  border: 2px solid var(--t-primary, #ff6b9d);
   border-radius: 6px;
   font-size: 13px;
   font-family: inherit;
@@ -2167,7 +2200,7 @@ async function renameGhost() {
 }
 
 .btn-rename-ok {
-  background: #ff6b9d;
+  background: var(--t-primary, #ff6b9d);
   color: white;
   border: none;
   border-radius: 6px;
@@ -2178,8 +2211,8 @@ async function renameGhost() {
 }
 
 .btn-rename-cancel {
-  background: #eee;
-  color: #666;
+  background: var(--t-border, #eee);
+  color: var(--t-text-2, #666);
   border: none;
   border-radius: 6px;
   padding: 4px 10px;
@@ -2197,9 +2230,9 @@ async function renameGhost() {
 .file-path {
   flex: 1;
   font-size: 11px;
-  color: #666;
+  color: var(--t-text-2, #666);
   padding: 4px 8px;
-  background: #f5f5f5;
+  background: var(--t-btn-bg, #f5f5f5);
   border-radius: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2207,20 +2240,20 @@ async function renameGhost() {
 }
 
 .btn-browse {
-  background: #f0f0f0;
-  border: 1px solid #ddd;
+  background: var(--t-btn-bg, #f0f0f0);
+  border: 1px solid var(--t-border, #ddd);
   border-radius: 6px;
   padding: 4px 12px;
   cursor: pointer;
   font-size: 11px;
-  color: #555;
+  color: var(--t-text-2, #555);
   white-space: nowrap;
   transition: all 0.15s;
 }
 
 .btn-browse:hover {
-  background: #e0e0e0;
-  border-color: #ccc;
+  background: var(--t-btn-hover-bg, #e0e0e0);
+  border-color: var(--t-border, #ccc);
 }
 
 .appearance-grid {
@@ -2239,7 +2272,7 @@ async function renameGhost() {
 .appearance-label {
   width: 52px;
   font-size: 12px;
-  color: #555;
+  color: var(--t-text-2, #555);
   flex-shrink: 0;
 }
 
@@ -2253,7 +2286,7 @@ async function renameGhost() {
   width: 48px;
   text-align: right;
   font-size: 11px;
-  color: #888;
+  color: var(--t-text-3, #888);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2261,5 +2294,128 @@ async function renameGhost() {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* ===== 主题选择器 ===== */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 6px 0 4px;
+}
+
+.theme-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+  border: 2px solid var(--t-border, #e0e0e0);
+  border-radius: 14px;
+  background: var(--t-btn-bg, var(--t-btn-bg, #fafafa));
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s ease;
+  font-family: inherit;
+  overflow: hidden;
+}
+
+.theme-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--t-primary, var(--t-primary, #ff6b9d));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.theme-card-active {
+  border-color: var(--t-primary, var(--t-primary, #ff6b9d));
+  box-shadow: 0 0 0 3px var(--t-input-glow, rgba(255, 107, 157, 0.18));
+  background: var(--t-config-bg, rgba(192, 132, 252, 0.06));
+}
+
+.theme-preview {
+  position: relative;
+  display: block;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 6px rgba(0, 0, 0, 0.06);
+}
+
+.theme-preview-sun {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  opacity: 0.85;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+}
+
+.theme-preview-bubble {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 2px solid;
+  border-radius: 10px 10px 10px 3px;
+  background: rgba(255, 255, 255, 0.7);
+  line-height: 1.2;
+}
+
+.theme-preview-bar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  height: 4px;
+  border-radius: 2px;
+  opacity: 0.75;
+}
+
+.theme-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.theme-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--t-text, #333);
+}
+
+.theme-desc {
+  font-size: 10px;
+  color: var(--t-text-3, var(--t-text-3, #999));
+  line-height: 1.3;
+}
+
+.theme-check {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--t-gradient, linear-gradient(135deg, var(--t-primary, #ff6b9d), var(--t-secondary, #c084fc)));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: themeCheckPop 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes themeCheckPop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.25); }
+  100% { transform: scale(1); }
 }
 </style>

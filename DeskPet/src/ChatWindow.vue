@@ -8,6 +8,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import BubbleMessage from './components/BubbleMessage.vue'
 import { getVirtualScreenBounds, clampToVirtualScreen } from './composables/useScreenBounds'
+import { applyTheme } from './composables/useTheme'
 
 interface ChatMessage {
   role: 'pet' | 'user' | 'system'
@@ -478,6 +479,7 @@ let completeUnlisten: (() => void) | null = null
 let postProcessedUnlisten: (() => void) | null = null
 let screenshotUnlisten: (() => void) | null = null
 let repositionUnlisten: (() => void) | null = null
+let themeUnlisten: (() => void) | null = null
 
 onMounted(async () => {
   await loadInitialData()
@@ -546,6 +548,10 @@ onMounted(async () => {
     positionNearPet()
   })
 
+  themeUnlisten = await listen('settings-updated', (event: any) => {
+    if (event.payload?.section === 'theme') applyTheme()
+  })
+
   nextTick(() => inputRef.value?.focus())
   // 通知主窗口：监听器已全部注册、窗口已就绪，可以安全发事件了
   await emit('chat:ready')
@@ -557,6 +563,7 @@ onUnmounted(() => {
   if (postProcessedUnlisten) postProcessedUnlisten()
   if (screenshotUnlisten) screenshotUnlisten()
   if (repositionUnlisten) repositionUnlisten()
+  if (themeUnlisten) themeUnlisten()
   if (typingInterval) clearInterval(typingInterval)
   window.speechSynthesis?.cancel()
 })
@@ -707,7 +714,7 @@ onUnmounted(() => {
   justify-content: center;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 13px;
-  color: #333;
+  color: var(--t-text, #333);
   user-select: none;
 }
 
@@ -715,11 +722,12 @@ onUnmounted(() => {
   position: relative;
   width: calc(100% - 48px);
   height: calc(100% - 48px);
-  background: rgba(255, 255, 255, 0.97);
-  backdrop-filter: blur(16px);
-  border-radius: 20px;
+  background: var(--t-panel-bg, rgba(255, 255, 255, 0.97));
+  backdrop-filter: blur(var(--t-panel-blur, 16px));
+  border-radius: var(--t-panel-radius, 20px);
   /* 阴影扩散 24px：边距 24px 让渐变完整淡出到窗口边缘，避免硬切 */
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--t-panel-shadow, 0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05));
+  border: 1px solid var(--t-panel-border, transparent);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -761,7 +769,7 @@ onUnmounted(() => {
   height: 0;
   border-top: 9px solid transparent;
   border-bottom: 9px solid transparent;
-  border-right: 14px solid rgba(255, 255, 255, 0.97);
+  border-right: 14px solid var(--t-panel-bg, rgba(255, 255, 255, 0.97));
   filter: drop-shadow(-1px 0 2px rgba(0, 0, 0, 0.06));
   z-index: 1;
 }
@@ -776,7 +784,7 @@ onUnmounted(() => {
   height: 0;
   border-top: 9px solid transparent;
   border-bottom: 9px solid transparent;
-  border-left: 14px solid rgba(255, 255, 255, 0.97);
+  border-left: 14px solid var(--t-panel-bg, rgba(255, 255, 255, 0.97));
   filter: drop-shadow(1px 0 2px rgba(0, 0, 0, 0.06));
   z-index: 1;
 }
@@ -787,7 +795,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--t-divider, rgba(0, 0, 0, 0.06));
   flex-shrink: 0;
   -webkit-app-region: drag;
 }
@@ -806,7 +814,7 @@ onUnmounted(() => {
 .header-pet-name {
   font-size: 14px;
   font-weight: 700;
-  color: #333;
+  color: var(--t-header-text, #333);
 }
 
 .header-mode-badge {
@@ -817,13 +825,13 @@ onUnmounted(() => {
 }
 
 .mode-companion {
-  background: rgba(255, 152, 0, 0.1);
-  color: #e65100;
+  background: var(--t-badge-cp-bg, rgba(255, 152, 0, 0.1));
+  color: var(--t-badge-cp-text, #e65100);
 }
 
 .mode-assistant {
-  background: rgba(33, 150, 243, 0.1);
-  color: #1565c0;
+  background: var(--t-badge-as-bg, rgba(33, 150, 243, 0.1));
+  color: var(--t-badge-as-text, #1565c0);
 }
 
 .header-close {
@@ -832,7 +840,7 @@ onUnmounted(() => {
   border: none;
   background: transparent;
   border-radius: 8px;
-  color: #999;
+  color: var(--t-text-3, #999);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -842,15 +850,15 @@ onUnmounted(() => {
 }
 
 .header-close:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #333;
+  background: var(--t-bg-2, rgba(0, 0, 0, 0.06));
+  color: var(--t-header-text, #333);
 }
 
 /* Error */
 .chat-error {
   padding: 40px 20px;
   text-align: center;
-  color: #f44336;
+  color: var(--t-error-text, #f44336);
   font-size: 13px;
 }
 
@@ -874,7 +882,7 @@ onUnmounted(() => {
 }
 
 .chat-messages::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--t-scroll-thumb, rgba(0, 0, 0, 0.12));
   border-radius: 2px;
 }
 
@@ -901,8 +909,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: rgba(255, 152, 0, 0.08);
-  border-top: 1px solid rgba(255, 152, 0, 0.15);
+  background: var(--t-badge-cp-bg, rgba(255, 152, 0, 0.08));
+  border-top: 1px solid var(--t-badge-cp-text, rgba(255, 152, 0, 0.15));
   flex-shrink: 0;
 }
 
@@ -913,23 +921,23 @@ onUnmounted(() => {
 .screenshot-banner-text {
   flex: 1;
   font-size: 12px;
-  color: #e65100;
+  color: var(--t-badge-cp-text, #e65100);
   font-weight: 500;
 }
 
 .screenshot-banner-cancel {
   font-size: 11px;
   padding: 3px 10px;
-  border: 1px solid rgba(255, 152, 0, 0.3);
+  border: 1px solid var(--t-badge-cp-text, rgba(255, 152, 0, 0.3));
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.8);
-  color: #e65100;
+  background: var(--t-panel-bg, rgba(255, 255, 255, 0.8));
+  color: var(--t-badge-cp-text, #e65100);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .screenshot-banner-cancel:hover {
-  background: #fff3e0;
+  background: var(--t-badge-cp-bg, #fff3e0);
 }
 
 /* Input area */
@@ -937,9 +945,9 @@ onUnmounted(() => {
   display: flex;
   gap: 6px;
   padding: 8px 12px 10px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--t-divider, rgba(0, 0, 0, 0.06));
   flex-shrink: 0;
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--t-bg-2, rgba(0, 0, 0, 0.02));
 }
 
 .impression-note {
@@ -948,7 +956,7 @@ onUnmounted(() => {
   gap: 5px;
   padding: 5px 14px 0;
   font-size: 10.5px;
-  color: #9a8fc0;
+  color: var(--t-text-2, #9a8fc0);
   flex-shrink: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -967,9 +975,9 @@ onUnmounted(() => {
 .mode-toggle {
   width: 32px;
   height: 34px;
-  border: 2px solid #ddd;
+  border: 2px solid var(--t-border, #ddd);
   border-radius: 10px;
-  background: #fafafa;
+  background: var(--t-btn-bg, #fafafa);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -985,33 +993,38 @@ onUnmounted(() => {
 }
 
 .mode-toggle.mode-companion {
-  border-color: rgba(255, 152, 0, 0.5);
-  background: rgba(255, 152, 0, 0.08);
-  color: #e65100;
+  border-color: var(--t-badge-cp-text, rgba(255, 152, 0, 0.5));
+  background: var(--t-badge-cp-bg, rgba(255, 152, 0, 0.08));
+  color: var(--t-badge-cp-text, #e65100);
 }
 
 .mode-toggle.mode-assistant {
-  border-color: rgba(33, 150, 243, 0.4);
-  background: rgba(33, 150, 243, 0.06);
-  color: #1565c0;
+  border-color: var(--t-badge-as-text, rgba(33, 150, 243, 0.4));
+  background: var(--t-badge-as-bg, rgba(33, 150, 243, 0.06));
+  color: var(--t-badge-as-text, #1565c0);
 }
 
 .chat-input {
   flex: 1;
   min-width: 0;
   padding: 7px 12px;
-  border: 2px solid #e0e0e0;
+  border: 2px solid var(--t-input-border, #e0e0e0);
   border-radius: 12px;
   font-size: 13px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
-  background: #fff;
+  background: var(--t-input-bg, #fff);
+  color: var(--t-text, #333);
   font-family: inherit;
 }
 
+.chat-input::placeholder {
+  color: var(--t-text-3, #999);
+}
+
 .chat-input:focus {
-  border-color: #ff6b9d;
-  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.12);
+  border-color: var(--t-input-focus, #ff6b9d);
+  box-shadow: 0 0 0 3px var(--t-input-glow, rgba(255, 107, 157, 0.12));
 }
 
 .chat-send {
@@ -1022,8 +1035,9 @@ onUnmounted(() => {
   height: 36px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(135deg, #ff6b9d, #c084fc);
-  color: white;
+  background: var(--t-send-bg, linear-gradient(135deg, #ff6b9d, #c084fc));
+  background-size: var(--t-grad-size, 100% 100%);
+  color: var(--t-send-text, #fff);
   cursor: pointer;
   transition: opacity 0.15s, transform 0.15s;
   flex-shrink: 0;
@@ -1032,6 +1046,11 @@ onUnmounted(() => {
 .chat-send:hover:not(:disabled) {
   opacity: 0.9;
   transform: scale(1.05);
+  animation: var(--t-btn-pop, none) 0.35s ease;
+}
+
+.chat-send:not(:disabled) {
+  animation: var(--t-send-glow, none) 2s ease-in-out infinite, var(--t-grad-flow, none) 3s ease infinite;
 }
 
 .chat-send:disabled {
@@ -1051,12 +1070,7 @@ onUnmounted(() => {
 }
 
 .bubble-enter {
-  animation: slideIn 0.25s ease both;
-}
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  animation: var(--t-msg-enter, msgIn) var(--t-msg-dur, 0.25s) ease both;
 }
 
 .bubble-sender {
@@ -1068,7 +1082,7 @@ onUnmounted(() => {
 }
 
 .sender-pet {
-  color: #ff6b9d;
+  color: var(--t-sender-pet, #ff6b9d);
 }
 
 .bubble-content {
@@ -1083,11 +1097,11 @@ onUnmounted(() => {
 }
 
 .bubble-pet .bubble-content {
-  background: #fff;
-  border: 2.5px solid #333;
-  border-radius: 16px 16px 16px 4px;
-  box-shadow: 3px 3px 0 #333;
-  color: #333;
+  background: var(--t-bp-bg, #fff);
+  border: var(--t-bp-border, 2.5px solid #333);
+  border-radius: var(--t-bp-radius, 16px 16px 16px 4px);
+  box-shadow: var(--t-bp-shadow, 3px 3px 0 #333);
+  color: var(--t-bp-text, #333);
 }
 
 .bubble-tail-left {
@@ -1098,7 +1112,7 @@ onUnmounted(() => {
   left: 16px;
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
-  border-top: 10px solid #333;
+  border-top: 10px solid var(--t-bp-tail, #333);
 }
 
 .bubble-tail-left::after {
@@ -1108,40 +1122,40 @@ onUnmounted(() => {
   left: -7px;
   border-left: 7px solid transparent;
   border-right: 7px solid transparent;
-  border-top: 9px solid #fff;
+  border-top: 9px solid var(--t-bp-bg, #fff);
 }
 
 .pet-typing {
-  background: #fff !important;
-  border: 2.5px solid #333 !important;
-  border-radius: 16px 16px 16px 4px !important;
-  box-shadow: 3px 3px 0 #333 !important;
+  background: var(--t-bp-bg, #fff) !important;
+  border: var(--t-bp-border, 2.5px solid #333) !important;
+  border-radius: var(--t-bp-radius, 16px 16px 16px 4px) !important;
+  box-shadow: var(--t-bp-shadow, 3px 3px 0 #333) !important;
   padding: 8px 14px !important;
 }
 
 .typing-indicator {
   font-size: 14px;
   letter-spacing: 3px;
-  color: #ff6b9d;
+  color: var(--t-typing, #ff6b9d);
 }
 
 .bubble-streaming {
-  background: #fff !important;
-  border: 2.5px solid #333 !important;
-  border-radius: 16px 16px 16px 4px !important;
-  box-shadow: 3px 3px 0 #333 !important;
+  background: var(--t-bp-bg, #fff) !important;
+  border: var(--t-bp-border, 2.5px solid #333) !important;
+  border-radius: var(--t-bp-radius, 16px 16px 16px 4px) !important;
+  box-shadow: var(--t-bp-shadow, 3px 3px 0 #333) !important;
   padding: 8px 14px !important;
   animation: streamPulse 2s ease-in-out infinite;
 }
 
 @keyframes streamPulse {
-  0%, 100% { box-shadow: 3px 3px 0 #333; }
-  50% { box-shadow: 3px 3px 0 #ff6b9d; }
+  0%, 100% { box-shadow: var(--t-bp-shadow, 3px 3px 0 #333); }
+  50% { box-shadow: var(--t-bp-shadow-glow, 3px 3px 0 #ff6b9d); }
 }
 
 .streaming-cursor {
   animation: cursorBlink 0.6s step-end infinite;
-  color: #ff6b9d;
+  color: var(--t-typing, #ff6b9d);
   font-weight: bold;
   margin-left: 1px;
 }
@@ -1156,9 +1170,9 @@ onUnmounted(() => {
   justify-content: center;
   width: 32px;
   height: 36px;
-  border: 2px solid #e0e0e0;
+  border: 2px solid var(--t-border, #e0e0e0);
   border-radius: 10px;
-  background: #fafafa;
+  background: var(--t-btn-bg, #fafafa);
   cursor: pointer;
   font-size: 16px;
   transition: all 0.15s;
@@ -1167,8 +1181,8 @@ onUnmounted(() => {
 }
 
 .chat-file-btn:hover:not(:disabled) {
-  border-color: #c084fc;
-  background: #faf5ff;
+  border-color: var(--t-secondary, #c084fc);
+  background: var(--t-btn-hover-bg, #faf5ff);
   transform: scale(1.1);
 }
 
@@ -1183,9 +1197,9 @@ onUnmounted(() => {
   justify-content: center;
   width: 32px;
   height: 36px;
-  border: 2px solid #e0e0e0;
+  border: 2px solid var(--t-border, #e0e0e0);
   border-radius: 10px;
-  background: #fafafa;
+  background: var(--t-btn-bg, #fafafa);
   cursor: pointer;
   font-size: 15px;
   transition: all 0.15s;
@@ -1194,8 +1208,8 @@ onUnmounted(() => {
 }
 
 .chat-mic-btn:hover:not(:disabled) {
-  border-color: #c084fc;
-  background: #faf5ff;
+  border-color: var(--t-secondary, #c084fc);
+  background: var(--t-btn-hover-bg, #faf5ff);
   transform: scale(1.1);
 }
 
@@ -1205,7 +1219,7 @@ onUnmounted(() => {
 }
 
 .chat-mic-btn.mic-recording {
-  border-color: #f44336;
+  border-color: var(--t-error-text, #f44336);
   background: rgba(244, 67, 54, 0.12);
   animation: micPulse 1s ease-in-out infinite;
 }
@@ -1221,7 +1235,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 5px 14px 0;
   font-size: 10.5px;
-  color: #e53935;
+  color: var(--t-error-text, #e53935);
   flex-shrink: 0;
 }
 
@@ -1229,7 +1243,7 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f44336;
+  background: var(--t-error-text, #f44336);
   animation: recBlink 1s step-start infinite;
 }
 
@@ -1241,7 +1255,7 @@ onUnmounted(() => {
   width: 10px;
   height: 10px;
   border: 2px solid rgba(0, 0, 0, 0.15);
-  border-top-color: #ff6b9d;
+  border-top-color: var(--t-spinner, #ff6b9d);
   border-radius: 50%;
   animation: recSpin 0.7s linear infinite;
 }
@@ -1253,9 +1267,9 @@ onUnmounted(() => {
 .drag-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(192, 132, 252, 0.12);
-  border: 3px dashed #c084fc;
-  border-radius: 20px;
+  background: color-mix(in srgb, var(--t-secondary, #c084fc) 14%, transparent);
+  border: 3px dashed var(--t-secondary, #c084fc);
+  border-radius: var(--t-panel-radius, 20px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1263,7 +1277,7 @@ onUnmounted(() => {
   gap: 8px;
   z-index: 100;
   font-size: 15px;
-  color: #7c3aed;
+  color: var(--t-secondary, #7c3aed);
   font-weight: 600;
   pointer-events: none;
   backdrop-filter: blur(2px);
@@ -1278,8 +1292,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  background: rgba(192, 132, 252, 0.08);
-  border-top: 1px solid rgba(192, 132, 252, 0.2);
+  background: var(--t-config-bg, rgba(192, 132, 252, 0.08));
+  border-top: 1px solid var(--t-config-border, rgba(192, 132, 252, 0.2));
   flex-shrink: 0;
 }
 
@@ -1295,7 +1309,7 @@ onUnmounted(() => {
 
 .import-text {
   font-size: 12px;
-  color: #7c3aed;
+  color: var(--t-secondary, #7c3aed);
   font-weight: 500;
 }
 </style>

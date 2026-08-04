@@ -1,32 +1,524 @@
-:root {
-  --pet-primary: #ff6b9d;
-  --pet-secondary: #c084fc;
-  --pet-bg: transparent;
-  --pet-text: #333;
-  --pet-text-light: #666;
-  --pet-bubble-bg: #ffffff;
-  --pet-bubble-border: #333;
-  --pet-bubble-shadow: #333;
-  --pet-bubble-radius: 16px;
-  --pet-bubble-tail-size: 10px;
-  --pet-user-bubble-bg: #f0faf0;
-  --pet-user-bubble-border: #a5d6a7;
-  --pet-user-bubble-shadow: #c8e6c9;
-  --pet-user-bubble-text: #2e7d32;
-  --pet-system-bubble-bg: rgba(255, 248, 240, 0.92);
-  --pet-system-bubble-border: #e0c8a0;
-  --pet-system-bubble-text: #a08050;
-  --pet-input-bg: #f5f5f5;
-  --pet-input-border: #ddd;
-  --pet-input-focus: #ff6b9d;
-  --pet-button-bg: #ff6b9d;
-  --pet-button-hover: #ff4785;
-  --pet-button-text: #fff;
+/* ============================================================
+ * 桌宠主题系统
+ * 通过 <html data-theme="xxx"> 切换主题，所有窗口共用本文件。
+ * 组件内一律引用 var(--t-xxx)，主题只负责改变量值。
+ * ============================================================ */
 
+:root,
+[data-theme='classic'] {
+  /* 主色 */
+  --t-primary: #ff6b9d;
+  --t-secondary: #c084fc;
+  --t-accent: #ff6b9d;
+  --t-gradient: linear-gradient(135deg, #ff6b9d, #c084fc);
+
+  /* 文字 */
+  --t-text: #333;
+  --t-text-2: #888;
+  --t-text-3: #999;
+
+  /* 面板（聊天/设置卡片/工具栏） */
+  --t-panel-bg: rgba(255, 255, 255, 0.97);
+  --t-panel-blur: 16px;
+  --t-panel-border: transparent;
+  --t-panel-shadow: 0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --t-panel-radius: 20px;
+  --t-divider: rgba(0, 0, 0, 0.06);
+
+  /* 次级背景 / 控件边框 */
+  --t-bg-2: rgba(0, 0, 0, 0.02);
+  --t-border: #e0e0e0;
+  --t-btn-bg: #fafafa;
+  --t-btn-hover-bg: #f0f0f0;
+
+  /* 宠物气泡 */
+  --t-bp-bg: #fff;
+  --t-bp-border: 2.5px solid #333;
+  --t-bp-shadow: 3px 3px 0 #333;
+  --t-bp-shadow-glow: 3px 3px 0 #ff6b9d;
+  --t-bp-text: #333;
+  --t-bp-radius: 16px 16px 16px 4px;
+  --t-bp-tail: #333;
+
+  /* 用户气泡 */
+  --t-bu-bg: #f0faf0;
+  --t-bu-border: 2px solid #a5d6a7;
+  --t-bu-shadow: 2px 2px 0 #c8e6c9;
+  --t-bu-text: #2e7d32;
+  --t-bu-radius: 16px 16px 4px 16px;
+  --t-bu-tail: #a5d6a7;
+
+  /* 系统气泡 */
+  --t-bs-bg: rgba(255, 248, 240, 0.92);
+  --t-bs-border: 1px dashed #e0c8a0;
+  --t-bs-text: #a08050;
+
+  /* 发送者名 / 打字点 */
+  --t-sender-pet: #ff6b9d;
+  --t-sender-user: #4caf50;
+  --t-typing: #ff6b9d;
+
+  /* 输入框 */
+  --t-input-bg: #fff;
+  --t-input-border: #e0e0e0;
+  --t-input-focus: #ff6b9d;
+  --t-input-glow: rgba(255, 107, 157, 0.12);
+
+  /* 发送按钮 */
+  --t-send-bg: linear-gradient(135deg, #ff6b9d, #c084fc);
+  --t-send-text: #fff;
+
+  /* 头部文字 / 徽章 */
+  --t-header-text: #333;
+  --t-badge-cp-bg: rgba(255, 152, 0, 0.1);
+  --t-badge-cp-text: #e65100;
+  --t-badge-as-bg: rgba(33, 150, 243, 0.1);
+  --t-badge-as-text: #1565c0;
+
+  /* 滚动条 */
+  --t-scroll-thumb: rgba(0, 0, 0, 0.12);
+
+  /* 主窗口：悬浮工具栏 / 说话气泡 */
+  --t-toolbar-bg: rgba(255, 255, 255, 0.92);
+  --t-toolbar-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  --t-toolbar-text: #333;
+  --t-toolbar-btn-hover: rgba(255, 107, 157, 0.1);
+  --t-speech-bg: #fff;
+  --t-speech-border: 2px solid #333;
+  --t-speech-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
+  --t-speech-text: #333;
+
+  /* 覆盖层（截图分析 loading 等） */
+  --t-overlay-bg: rgba(0, 0, 0, 0.8);
+  --t-overlay-text: #fff;
+  --t-spinner: #ff6b9d;
+
+  /* 设置窗口 */
+  --t-settings-title: #888;
+  --t-config-bg: rgba(192, 132, 252, 0.06);
+  --t-config-border: rgba(192, 132, 252, 0.15);
+  --t-hint: #4caf50;
+  --t-error-text: #f44336;
+
+  /* 动效 */
+  --t-msg-enter: msgIn;
+  --t-msg-dur: 0.25s;
+  --t-btn-pop: none;
+  --t-send-glow: none;
+  --t-grad-flow: none;
+  --t-scanline: none;
+  --t-grad-size: 100% 100%;
+}
+
+/* ============ 暗夜流光 midnight：深色玻璃拟态 ============ */
+[data-theme='midnight'] {
+  --t-primary: #7c8cff;
+  --t-secondary: #a777e3;
+  --t-accent: #7c8cff;
+  --t-gradient: linear-gradient(135deg, #6e8efb, #a777e3);
+
+  --t-text: #e8eaf2;
+  --t-text-2: #9aa3b5;
+  --t-text-3: #6f7890;
+
+  --t-panel-bg: rgba(22, 25, 40, 0.88);
+  --t-panel-blur: 24px;
+  --t-panel-border: transparent;
+  --t-panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --t-panel-radius: 22px;
+  --t-divider: rgba(255, 255, 255, 0.09);
+
+  --t-bg-2: rgba(255, 255, 255, 0.05);
+  --t-border: rgba(255, 255, 255, 0.14);
+  --t-btn-bg: rgba(255, 255, 255, 0.08);
+  --t-btn-hover-bg: rgba(255, 255, 255, 0.14);
+
+  --t-bp-bg: rgba(255, 255, 255, 0.07);
+  --t-bp-border: 1px solid rgba(124, 140, 255, 0.5);
+  --t-bp-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  --t-bp-shadow-glow: 0 0 18px rgba(124, 140, 255, 0.55);
+  --t-bp-text: #e8eaf2;
+  --t-bp-radius: 18px 18px 18px 6px;
+  --t-bp-tail: rgba(124, 140, 255, 0.5);
+
+  --t-bu-bg: rgba(110, 142, 251, 0.2);
+  --t-bu-border: 1px solid rgba(110, 142, 251, 0.6);
+  --t-bu-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+  --t-bu-text: #dfe6ff;
+  --t-bu-radius: 18px 18px 6px 18px;
+  --t-bu-tail: rgba(110, 142, 251, 0.6);
+
+  --t-bs-bg: rgba(255, 255, 255, 0.05);
+  --t-bs-border: 1px dashed rgba(255, 255, 255, 0.22);
+  --t-bs-text: #8f97ad;
+
+  --t-sender-pet: #9db1ff;
+  --t-sender-user: #7fd1a8;
+  --t-typing: #9db1ff;
+
+  --t-input-bg: rgba(255, 255, 255, 0.06);
+  --t-input-border: rgba(255, 255, 255, 0.14);
+  --t-input-focus: #7c8cff;
+  --t-input-glow: rgba(124, 140, 255, 0.22);
+
+  --t-send-bg: linear-gradient(135deg, #6e8efb, #a777e3);
+  --t-send-text: #fff;
+
+  --t-header-text: #e8eaf2;
+  --t-badge-cp-bg: rgba(255, 152, 0, 0.16);
+  --t-badge-cp-text: #ffb74d;
+  --t-badge-as-bg: rgba(33, 150, 243, 0.18);
+  --t-badge-as-text: #64b5f6;
+
+  --t-scroll-thumb: rgba(255, 255, 255, 0.22);
+
+  --t-toolbar-bg: rgba(22, 25, 40, 0.86);
+  --t-toolbar-shadow: 0 4px 20px rgba(0, 0, 0, 0.55);
+  --t-toolbar-text: #e8eaf2;
+  --t-toolbar-btn-hover: rgba(124, 140, 255, 0.22);
+  --t-speech-bg: rgba(22, 25, 40, 0.92);
+  --t-speech-border: 1px solid rgba(124, 140, 255, 0.45);
+  --t-speech-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --t-speech-text: #e8eaf2;
+
+  --t-overlay-bg: rgba(10, 12, 22, 0.88);
+  --t-spinner: #7c8cff;
+
+  --t-settings-title: #9aa3b5;
+  --t-config-bg: rgba(124, 140, 255, 0.07);
+  --t-config-border: rgba(124, 140, 255, 0.2);
+  --t-hint: #7fd1a8;
+  --t-error-text: #ff8a80;
+
+  --t-msg-enter: msgPopIn;
+}
+
+/* ============ 元气跃动 vivid：糖果色 + 弹跳动效 ============ */
+[data-theme='vivid'] {
+  --t-primary: #ff9a56;
+  --t-secondary: #ff2ec4;
+  --t-accent: #ffd93d;
+  --t-gradient: linear-gradient(135deg, #ff9a56, #ff6b9d, #ff2ec4);
+
+  --t-text: #4a3f6b;
+  --t-text-2: #8a7fb0;
+  --t-text-3: #a99fcf;
+
+  --t-panel-bg: rgba(255, 252, 247, 0.97);
+  --t-panel-blur: 14px;
+  --t-panel-border: transparent;
+  --t-panel-shadow: 0 6px 28px rgba(255, 107, 61, 0.16), 0 0 0 2px rgba(255, 217, 61, 0.35);
+  --t-panel-radius: 24px;
+  --t-divider: rgba(90, 60, 130, 0.1);
+
+  --t-bg-2: rgba(255, 154, 86, 0.05);
+  --t-border: #f0c9a0;
+  --t-btn-bg: #fff7ea;
+  --t-btn-hover-bg: #ffe9cf;
+
+  --t-bp-bg: #fff;
+  --t-bp-border: 3px solid #ff6b9d;
+  --t-bp-shadow: 4px 4px 0 #ffd166;
+  --t-bp-shadow-glow: 4px 4px 0 #ff2ec4;
+  --t-bp-text: #4a3f6b;
+  --t-bp-radius: 20px 20px 20px 8px;
+  --t-bp-tail: #ff6b9d;
+
+  --t-bu-bg: #eefbff;
+  --t-bu-border: 3px solid #3ec1ff;
+  --t-bu-shadow: 4px 4px 0 #a5e7ff;
+  --t-bu-text: #1e7fa8;
+  --t-bu-radius: 20px 20px 8px 20px;
+  --t-bu-tail: #3ec1ff;
+
+  --t-bs-bg: rgba(255, 217, 61, 0.14);
+  --t-bs-border: 1px dashed #f0b429;
+  --t-bs-text: #b07d0a;
+
+  --t-sender-pet: #ff6b9d;
+  --t-sender-user: #3ec1ff;
+  --t-typing: #ff2ec4;
+
+  --t-input-bg: #fff;
+  --t-input-border: #ffc9a8;
+  --t-input-focus: #ff6b9d;
+  --t-input-glow: rgba(255, 46, 196, 0.16);
+
+  --t-send-bg: linear-gradient(135deg, #ff9a56, #ff2ec4);
+  --t-send-text: #fff;
+
+  --t-header-text: #4a3f6b;
+  --t-badge-cp-bg: rgba(255, 152, 0, 0.16);
+  --t-badge-cp-text: #e07b00;
+  --t-badge-as-bg: rgba(62, 193, 255, 0.16);
+  --t-badge-as-text: #0e7fb8;
+
+  --t-scroll-thumb: rgba(255, 107, 61, 0.3);
+
+  --t-toolbar-bg: rgba(255, 252, 247, 0.94);
+  --t-toolbar-shadow: 0 4px 20px rgba(255, 107, 61, 0.22);
+  --t-toolbar-text: #4a3f6b;
+  --t-toolbar-btn-hover: rgba(255, 46, 196, 0.1);
+  --t-speech-bg: #fff;
+  --t-speech-border: 3px solid #ff6b9d;
+  --t-speech-shadow: 3px 3px 0 #ffd166;
+  --t-speech-text: #4a3f6b;
+
+  --t-spinner: #ff2ec4;
+
+  --t-settings-title: #8a7fb0;
+  --t-config-bg: rgba(255, 154, 86, 0.07);
+  --t-config-border: rgba(255, 154, 86, 0.25);
+  --t-hint: #2fae7f;
+
+  --t-msg-enter: msgBounceIn;
+  --t-msg-dur: 0.4s;
+  --t-btn-pop: btnPop;
+  --t-send-glow: sendGlow;
+  --t-grad-flow: gradFlow;
+  --t-grad-size: 200% 200%;
+}
+
+/* ============ 赛博霓虹 neon：深底 + 青/品红光效 ============ */
+[data-theme='neon'] {
+  --t-primary: #00f0ff;
+  --t-secondary: #ff2ec4;
+  --t-accent: #b967ff;
+  --t-gradient: linear-gradient(135deg, #00f0ff, #b967ff, #ff2ec4);
+
+  --t-text: #d8f6ff;
+  --t-text-2: #8fa8c0;
+  --t-text-3: #5f7d96;
+
+  --t-panel-bg: rgba(7, 11, 19, 0.92);
+  --t-panel-blur: 20px;
+  --t-panel-border: transparent;
+  --t-panel-shadow: 0 0 0 1px rgba(0, 240, 255, 0.28), 0 0 24px rgba(0, 240, 255, 0.12), 0 8px 32px rgba(0, 0, 0, 0.6);
+  --t-panel-radius: 18px;
+  --t-divider: rgba(0, 240, 255, 0.15);
+
+  --t-bg-2: rgba(0, 240, 255, 0.05);
+  --t-border: rgba(0, 240, 255, 0.3);
+  --t-btn-bg: rgba(0, 240, 255, 0.07);
+  --t-btn-hover-bg: rgba(0, 240, 255, 0.15);
+
+  --t-bp-bg: rgba(0, 240, 255, 0.07);
+  --t-bp-border: 1px solid #00f0ff;
+  --t-bp-shadow: 0 0 14px rgba(0, 240, 255, 0.28);
+  --t-bp-shadow-glow: 0 0 18px rgba(255, 46, 196, 0.55);
+  --t-bp-text: #d8f6ff;
+  --t-bp-radius: 14px 14px 14px 4px;
+  --t-bp-tail: #00f0ff;
+
+  --t-bu-bg: rgba(255, 46, 196, 0.1);
+  --t-bu-border: 1px solid #ff2ec4;
+  --t-bu-shadow: 0 0 14px rgba(255, 46, 196, 0.25);
+  --t-bu-text: #ffd3f4;
+  --t-bu-radius: 14px 14px 4px 14px;
+  --t-bu-tail: #ff2ec4;
+
+  --t-bs-bg: rgba(185, 103, 255, 0.08);
+  --t-bs-border: 1px dashed #b967ff;
+  --t-bs-text: #b99ff0;
+
+  --t-sender-pet: #00f0ff;
+  --t-sender-user: #ff2ec4;
+  --t-typing: #00f0ff;
+
+  --t-input-bg: rgba(0, 240, 255, 0.05);
+  --t-input-border: rgba(0, 240, 255, 0.3);
+  --t-input-focus: #00f0ff;
+  --t-input-glow: rgba(0, 240, 255, 0.22);
+
+  --t-send-bg: linear-gradient(135deg, #00f0ff, #ff2ec4);
+  --t-send-text: #04121a;
+
+  --t-header-text: #d8f6ff;
+  --t-badge-cp-bg: rgba(255, 46, 196, 0.16);
+  --t-badge-cp-text: #ff7ad9;
+  --t-badge-as-bg: rgba(0, 240, 255, 0.14);
+  --t-badge-as-text: #6ef6ff;
+
+  --t-scroll-thumb: rgba(0, 240, 255, 0.35);
+
+  --t-toolbar-bg: rgba(7, 11, 19, 0.9);
+  --t-toolbar-shadow: 0 0 0 1px rgba(0, 240, 255, 0.25), 0 4px 20px rgba(0, 0, 0, 0.6);
+  --t-toolbar-text: #d8f6ff;
+  --t-toolbar-btn-hover: rgba(0, 240, 255, 0.18);
+  --t-speech-bg: rgba(7, 11, 19, 0.94);
+  --t-speech-border: 1px solid #00f0ff;
+  --t-speech-shadow: 0 0 16px rgba(0, 240, 255, 0.3);
+  --t-speech-text: #d8f6ff;
+
+  --t-overlay-bg: rgba(4, 8, 14, 0.9);
+  --t-spinner: #00f0ff;
+
+  --t-settings-title: #8fa8c0;
+  --t-config-bg: rgba(0, 240, 255, 0.05);
+  --t-config-border: rgba(0, 240, 255, 0.18);
+  --t-hint: #6ef6ff;
+  --t-error-text: #ff8fa8;
+
+  --t-msg-enter: msgNeonIn;
+  --t-msg-dur: 0.3s;
+  --t-send-glow: sendNeonPulse;
+  --t-scanline: scanlineMove;
+}
+
+/* ============ 清新奶油 cream：低饱和柔和治愈 ============ */
+[data-theme='cream'] {
+  --t-primary: #7fc8a9;
+  --t-secondary: #ffb894;
+  --t-accent: #f9a8a0;
+  --t-gradient: linear-gradient(135deg, #7fc8a9, #ffb894);
+
+  --t-text: #5b5148;
+  --t-text-2: #9a8d82;
+  --t-text-3: #b5a89c;
+
+  --t-panel-bg: rgba(253, 248, 240, 0.97);
+  --t-panel-blur: 16px;
+  --t-panel-border: transparent;
+  --t-panel-shadow: 0 6px 28px rgba(180, 150, 120, 0.18), 0 0 0 1px rgba(230, 215, 195, 0.6);
+  --t-panel-radius: 26px;
+  --t-divider: rgba(180, 150, 120, 0.16);
+
+  --t-bg-2: rgba(127, 200, 169, 0.06);
+  --t-border: #e8d9c8;
+  --t-btn-bg: #fbf5ec;
+  --t-btn-hover-bg: #f4e9da;
+
+  --t-bp-bg: #fffdf8;
+  --t-bp-border: 1.5px solid #e8d5c0;
+  --t-bp-shadow: 0 4px 14px rgba(255, 184, 148, 0.35);
+  --t-bp-shadow-glow: 0 4px 18px rgba(249, 168, 160, 0.6);
+  --t-bp-text: #5b5148;
+  --t-bp-radius: 20px 20px 20px 8px;
+  --t-bp-tail: #e8d5c0;
+
+  --t-bu-bg: #f0faf4;
+  --t-bu-border: 1.5px solid #bfe3cd;
+  --t-bu-shadow: 0 4px 14px rgba(127, 200, 169, 0.3);
+  --t-bu-text: #4a7d63;
+  --t-bu-radius: 20px 20px 8px 20px;
+  --t-bu-tail: #bfe3cd;
+
+  --t-bs-bg: rgba(255, 228, 200, 0.4);
+  --t-bs-border: 1px dashed #e3b98a;
+  --t-bs-text: #b0815a;
+
+  --t-sender-pet: #7fc8a9;
+  --t-sender-user: #f9a8a0;
+  --t-typing: #7fc8a9;
+
+  --t-input-bg: #fffdf8;
+  --t-input-border: #e8d9c8;
+  --t-input-focus: #7fc8a9;
+  --t-input-glow: rgba(127, 200, 169, 0.18);
+
+  --t-send-bg: linear-gradient(135deg, #7fc8a9, #ffb894);
+  --t-send-text: #fff;
+
+  --t-header-text: #5b5148;
+  --t-badge-cp-bg: rgba(255, 184, 148, 0.2);
+  --t-badge-cp-text: #c07a4d;
+  --t-badge-as-bg: rgba(127, 200, 169, 0.2);
+  --t-badge-as-text: #4a7d63;
+
+  --t-scroll-thumb: rgba(180, 150, 120, 0.35);
+
+  --t-toolbar-bg: rgba(253, 248, 240, 0.94);
+  --t-toolbar-shadow: 0 4px 20px rgba(180, 150, 120, 0.25);
+  --t-toolbar-text: #5b5148;
+  --t-toolbar-btn-hover: rgba(127, 200, 169, 0.18);
+  --t-speech-bg: #fffdf8;
+  --t-speech-border: 1.5px solid #e8d5c0;
+  --t-speech-shadow: 0 4px 14px rgba(255, 184, 148, 0.4);
+  --t-speech-text: #5b5148;
+
+  --t-spinner: #7fc8a9;
+
+  --t-settings-title: #9a8d82;
+  --t-config-bg: rgba(127, 200, 169, 0.07);
+  --t-config-border: rgba(127, 200, 169, 0.22);
+  --t-hint: #4a7d63;
+  --t-error-text: #d98974;
+
+  --t-msg-enter: msgIn;
+}
+
+/* ============ 全局动效 keyframes（供 var(--t-msg-enter) 等引用） ============ */
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes msgBounceIn {
+  0% { opacity: 0; transform: translateY(16px) scale(0.92); }
+  55% { opacity: 1; transform: translateY(-4px) scale(1.02); }
+  75% { transform: translateY(2px) scale(0.99); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes msgPopIn {
+  0% { opacity: 0; transform: translateY(8px) scale(0.96); }
+  60% { opacity: 1; transform: translateY(-2px) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes msgNeonIn {
+  0% { opacity: 0; transform: translateX(-8px); filter: blur(3px); }
+  100% { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+@keyframes btnPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25) rotate(-4deg); }
+  70% { transform: scale(0.95) rotate(2deg); }
+  100% { transform: scale(1.08); }
+}
+
+@keyframes sendGlow {
+  0%, 100% { filter: brightness(1); box-shadow: 0 0 6px rgba(255, 46, 196, 0.4); }
+  50% { filter: brightness(1.2); box-shadow: 0 0 18px rgba(255, 154, 86, 0.65); }
+}
+
+@keyframes sendNeonPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 240, 255, 0.5); }
+  50% { box-shadow: 0 0 22px rgba(255, 46, 196, 0.6); }
+}
+
+@keyframes gradFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes scanlineMove {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* ============ 赛博霓虹：扫描线装饰（全局选择器，优先级高于 scoped） ============ */
+[data-theme='neon'] .chat-app .chat-bubble::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 42px;
+  background: linear-gradient(to bottom, rgba(0, 240, 255, 0.07), transparent);
+  pointer-events: none;
+  animation: scanlineMove 7s linear infinite;
+  z-index: 5;
+}
+
+/* ============ 基础样式 ============ */
+:root {
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--pet-text);
+  color: var(--t-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

@@ -16,6 +16,7 @@ import { useGhostLifecycle, type GhostStatus } from './composables/useGhost'
 import { useScreenshot, type ScreenshotRegion } from './composables/useScreenshot'
 import { useTransfer } from './composables/useTransfer'
 import { useWindowManager } from './composables/useWindowManager'
+import { applyTheme } from './composables/useTheme'
 
 interface AppearanceConfig {
   hueRotate: number
@@ -534,6 +535,8 @@ onMounted(async () => {
       petAppearance.value = loadAppearance()
     } else if (section === 'initiative') {
       initiative.syncInitiativeConfig()
+    } else if (section === 'theme') {
+      applyTheme()
     }
   })
 
@@ -769,7 +772,7 @@ onUnmounted(() => {
   background: transparent;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 13px;
-  color: #333;
+  color: var(--t-text, #333);
   user-select: none;
 }
 
@@ -834,10 +837,10 @@ onUnmounted(() => {
   min-width: 60px;
   margin-bottom: 6px;
   padding: 7px 12px;
-  background: #fff;
-  border: 2px solid #333;
+  background: var(--t-speech-bg, #fff);
+  border: var(--t-speech-border, 2px solid #333);
   border-radius: 12px;
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
+  box-shadow: var(--t-speech-shadow, 2px 2px 0 rgba(0, 0, 0, 0.2));
   z-index: 20;
   cursor: pointer;
   text-align: center;
@@ -845,7 +848,7 @@ onUnmounted(() => {
 
 .speech-bubble-text {
   font-size: 12px;
-  color: #333;
+  color: var(--t-speech-text, #333);
   line-height: 1.5;
   display: block;
 }
@@ -857,9 +860,9 @@ onUnmounted(() => {
   transform: translateX(-50%) rotate(45deg);
   width: 12px;
   height: 12px;
-  background: #fff;
-  border-right: 2px solid #333;
-  border-bottom: 2px solid #333;
+  background: var(--t-speech-bg, #fff);
+  border-right: var(--t-speech-border, 2px solid #333);
+  border-bottom: var(--t-speech-border, 2px solid #333);
 }
 
 .bubble-pop-enter-active,
@@ -883,9 +886,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 5px 10px 7px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--t-toolbar-bg, rgba(255, 255, 255, 0.92));
   border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--t-toolbar-shadow, 0 2px 12px rgba(0, 0, 0, 0.12));
   white-space: nowrap;
   -webkit-app-region: no-drag;
   pointer-events: auto;
@@ -902,7 +905,7 @@ onUnmounted(() => {
 .hover-pet-name {
   font-size: 12px;
   font-weight: 700;
-  color: #333;
+  color: var(--t-toolbar-text, #333);
   line-height: 1.2;
 }
 
@@ -913,7 +916,7 @@ onUnmounted(() => {
 
 .hover-mood-text {
   font-size: 10px;
-  color: #888;
+  color: var(--t-text-2, #888);
   line-height: 1.2;
 }
 
@@ -952,7 +955,7 @@ onUnmounted(() => {
 }
 
 .hover-actions button:hover {
-  background: rgba(255, 107, 157, 0.1);
+  background: var(--t-toolbar-btn-hover, rgba(255, 107, 157, 0.1));
   transform: scale(1.15);
 }
 
@@ -966,8 +969,8 @@ onUnmounted(() => {
   top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
+  background: var(--t-overlay-bg, rgba(0, 0, 0, 0.8));
+  color: var(--t-overlay-text, white);
   padding: 12px 20px;
   border-radius: 12px;
   font-size: 13px;
@@ -982,7 +985,7 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   border: 3px solid rgba(255, 255, 255, 0.3);
-  border-top: 3px solid #ff6b9d;
+  border-top: 3px solid var(--t-spinner, #ff6b9d);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }

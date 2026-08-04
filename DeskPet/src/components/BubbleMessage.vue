@@ -74,11 +74,11 @@ const senderLabel = computed(() => {
 }
 
 .sender-pet {
-  color: #ff6b9d;
+  color: var(--t-sender-pet, #ff6b9d);
 }
 
 .sender-user {
-  color: #4caf50;
+  color: var(--t-sender-user, #4caf50);
   text-align: right;
 }
 
@@ -94,28 +94,28 @@ const senderLabel = computed(() => {
 }
 
 .bubble-pet .bubble-content {
-  background: #fff;
-  border: 2.5px solid #333;
-  border-radius: 16px 16px 16px 4px;
-  box-shadow: 3px 3px 0 #333;
-  color: #333;
+  background: var(--t-bp-bg, #fff);
+  border: var(--t-bp-border, 2.5px solid #333);
+  border-radius: var(--t-bp-radius, 16px 16px 16px 4px);
+  box-shadow: var(--t-bp-shadow, 3px 3px 0 #333);
+  color: var(--t-bp-text, #333);
 }
 
 .bubble-user .bubble-content {
-  background: #f0faf0;
-  border: 2px solid #a5d6a7;
-  border-radius: 16px 16px 4px 16px;
-  box-shadow: 2px 2px 0 #c8e6c9;
-  color: #2e7d32;
+  background: var(--t-bu-bg, #f0faf0);
+  border: var(--t-bu-border, 2px solid #a5d6a7);
+  border-radius: var(--t-bu-radius, 16px 16px 4px 16px);
+  box-shadow: var(--t-bu-shadow, 2px 2px 0 #c8e6c9);
+  color: var(--t-bu-text, #2e7d32);
   max-width: 200px;
 }
 
 .bubble-system .bubble-content {
-  background: rgba(255, 248, 240, 0.92);
-  border: 1px dashed #e0c8a0;
+  background: var(--t-bs-bg, rgba(255, 248, 240, 0.92));
+  border: var(--t-bs-border, 1px dashed #e0c8a0);
   border-radius: 8px;
   font-size: 11px;
-  color: #a08050;
+  color: var(--t-bs-text, #a08050);
   padding: 4px 10px;
   max-width: 260px;
   text-align: center;
@@ -132,7 +132,7 @@ const senderLabel = computed(() => {
   left: 16px;
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
-  border-top: 10px solid #333;
+  border-top: 10px solid var(--t-bp-tail, #333);
 }
 
 .bubble-tail-left::after {
@@ -142,7 +142,7 @@ const senderLabel = computed(() => {
   left: -7px;
   border-left: 7px solid transparent;
   border-right: 7px solid transparent;
-  border-top: 9px solid #fff;
+  border-top: 9px solid var(--t-bp-bg, #fff);
 }
 
 .bubble-tail-right {
@@ -152,7 +152,7 @@ const senderLabel = computed(() => {
   height: 0;
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
-  border-top: 10px solid #a5d6a7;
+  border-top: 10px solid var(--t-bu-tail, #a5d6a7);
 }
 
 .bubble-image {
@@ -175,6 +175,6 @@ const senderLabel = computed(() => {
   display: block;
   margin-top: 4px;
   font-size: 11px;
-  color: #888;
+  color: var(--t-text-2, #888);
 }
 </style>
