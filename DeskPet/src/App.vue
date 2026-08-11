@@ -17,6 +17,8 @@ import { useScreenshot, type ScreenshotRegion } from './composables/useScreensho
 import { useTransfer } from './composables/useTransfer'
 import { useWindowManager } from './composables/useWindowManager'
 import { applyTheme } from './composables/useTheme'
+import { useMouseTracking, type HeadDirection } from './composables/useMouseTracking'
+import type { HeadConfig } from './composables/usePetRenderer'
 
 interface AppearanceConfig {
   hueRotate: number
@@ -52,7 +54,36 @@ const error = ref('')
 const { ghostId, pushSystemMessage, clearMessages, loadHistory, pushPetMessage, ttsEnabled, ttsRate, ttsPitch, ttsEngine, ttsVoice } = useChat()
 const chatLoading = ref(false)
 const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, stopBlink, holdAnimation, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation()
-const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, framePositions, setRenderer, setSpriteConfig, parseAsepriteJson } = usePetRenderer()
+const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, framePositions, headConfig, headEnabled, setRenderer, setSpriteConfig, setHeadConfig, setHeadEnabled, parseAsepriteJson } = usePetRenderer()
+
+// ===== 头部视觉追踪（仅 IDLE，素材存在则自动启用）=====
+const headDirection = ref<HeadDirection>('center')
+const headTracking = useMouseTracking({
+  radius: 400,
+  hysteresisDeg: 22.5,
+  settleMs: 2000,
+  moveThresholdPx: 5,
+})
+// 约定素材路径：public/pet/head_9dir.png（3×3 宫格：正/左上/上/右上/左/右/左下/下/右下）
+const HEAD_SRC = '/pet/head_9dir.png'
+
+function probeHeadAsset() {
+  const img = new Image()
+  img.onload = () => {
+    const config: Partial<HeadConfig> = { src: HEAD_SRC }
+    // 调参：localStorage.setItem('deskpet_head_slot', JSON.stringify({x:0,y:0,w:128,h:64}))
+    try {
+      const saved = localStorage.getItem('deskpet_head_slot')
+      if (saved) config.headSlot = JSON.parse(saved)
+    } catch { /* 忽略非法 JSON，走默认 */ }
+    setHeadConfig(config)
+    setHeadEnabled(true)
+  }
+  img.onerror = () => {
+    setHeadEnabled(false)
+  }
+  img.src = HEAD_SRC
+}
 
 const showToolbar = ref(false)
 const petColumnRef = ref<HTMLElement | null>(null)
@@ -488,6 +519,7 @@ onMounted(async () => {
 
   loadSpriteJson()
   loadRendererFromStorage()
+  probeHeadAsset()
 
   hotkeyUnlisten = await listen('screenshot-hotkey', () => {
     triggerScreenshot()
@@ -643,6 +675,12 @@ onMounted(async () => {
         await win.setIgnoreCursorEvents(true)
         cursorEventsIgnored = true
       }
+
+      // 头部视觉追踪：复用同一帧的鼠标位置，计算与宠物中心的相对距离。
+      // 宠物在窗口内居中，petX/petY 为其在窗口内的偏移（wander/teleport 时变化）。
+      const petCenterX = window.innerWidth / 2 + petX.value
+      const petCenterY = window.innerHeight / 2 + petY.value
+      headDirection.value = headTracking.update(logicalX, logicalY, petCenterX, petCenterY)
     } catch {
       // 轮询失败时保持当前状态，下一帧重试
     }
@@ -712,6 +750,9 @@ onUnmounted(() => {
           :frame-durations="frameDurations"
           :frame-positions="framePositions"
           :is-flipped="isFlipped"
+          :head-direction="headDirection"
+          :head-enabled="headEnabled"
+          :head-config="headConfig"
           @animation-complete="onAnimationComplete"
         />
       </div>

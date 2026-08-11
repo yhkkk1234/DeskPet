@@ -16,6 +16,56 @@ export interface LottieConfig {
   src: string  // path to directory containing lottie JSONs
 }
 
+/**
+ * 头部视觉追踪素材配置（IDLE 状态下叠加的 9 宫格头部方向帧）。
+ * 宫格布局约定（cols×rows，按行优先）：
+ *   row0: up-left, up, up-right
+ *   row1: left,   center, right
+ *   row2: down-left, down, down-right
+ *
+ * 素材约定：每格 = Idle 帧从肩膀往下截掉后的上半部分（头+脖子），
+ * 渲染时用 headSlot 挖掉身体帧对应区域再叠上素材，避免转头帧与
+ * 原头部错位导致露出。
+ */
+export interface HeadSlot {
+  /** 挖洞矩形左上角 x（相对帧坐标） */
+  x: number
+  /** 挖洞矩形左上角 y */
+  y: number
+  /** 挖洞矩形宽 */
+  w: number
+  /** 挖洞矩形高 */
+  h: number
+}
+
+export interface HeadConfig {
+  src: string
+  /** 每格帧宽度（逻辑像素，与身体帧同尺寸） */
+  frameWidth: number
+  /** 每格帧高度 */
+  frameHeight: number
+  /** 列数，默认 3 */
+  cols: number
+  /** 行数，默认 3 */
+  rows: number
+  /** 对齐微调偏移（逻辑像素），用于修正头部素材与身体帧的错位 */
+  offsetX: number
+  offsetY: number
+  /** 挖洞矩形：渲染身体帧时擦除该区域（相对帧坐标），默认挖掉上半 Y0..64 */
+  headSlot: HeadSlot
+}
+
+const DEFAULT_HEAD_CONFIG: HeadConfig = {
+  src: '',
+  frameWidth: 128,
+  frameHeight: 128,
+  cols: 3,
+  rows: 3,
+  offsetX: 0,
+  offsetY: 0,
+  headSlot: { x: 0, y: 0, w: 128, h: 64 },
+}
+
 export interface FrameTag {
   name: string
   from: number
@@ -73,6 +123,8 @@ export function usePetRenderer() {
   const tagRanges = ref<Map<string, TagFrameRange>>(new Map())
   const frameDurations = ref<Map<number, number>>(new Map())
   const framePositions = ref<Map<number, FramePosition>>(new Map())
+  const headConfig = ref<HeadConfig>({ ...DEFAULT_HEAD_CONFIG })
+  const headEnabled = ref(false)
 
   function setRenderer(type: RendererType) {
     rendererType.value = type
@@ -85,6 +137,14 @@ export function usePetRenderer() {
 
   function setLottieConfig(config: Partial<LottieConfig>) {
     lottieConfig.value = { ...lottieConfig.value, ...config }
+  }
+
+  function setHeadConfig(config: Partial<HeadConfig>) {
+    headConfig.value = { ...headConfig.value, ...config }
+  }
+
+  function setHeadEnabled(enabled: boolean) {
+    headEnabled.value = enabled
   }
 
   function onSpriteLoaded() {
@@ -154,9 +214,13 @@ export function usePetRenderer() {
     tagRanges,
     frameDurations,
     framePositions,
+    headConfig,
+    headEnabled,
     setRenderer,
     setSpriteConfig,
     setLottieConfig,
+    setHeadConfig,
+    setHeadEnabled,
     onSpriteLoaded,
     parseAsepriteJson,
     getTagRange,

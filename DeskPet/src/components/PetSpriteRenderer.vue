@@ -2,7 +2,9 @@
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import type { AnimationState } from '../composables/useAnimation'
 import { STATE_TO_SPRITE_ROW, STATE_TO_FPS, STATE_TO_LOOP } from '../composables/useAnimation'
-import type { SpriteConfig, TagFrameRange, FramePosition } from '../composables/usePetRenderer'
+import type { SpriteConfig, TagFrameRange, FramePosition, HeadConfig } from '../composables/usePetRenderer'
+import type { HeadDirection } from '../composables/useMouseTracking'
+import HeadOverlay from './HeadOverlay.vue'
 
 const props = defineProps<{
   animationState: AnimationState
@@ -11,6 +13,9 @@ const props = defineProps<{
   frameDurations: Map<number, number>
   framePositions: Map<number, FramePosition>
   styleOverride: Record<string, string>
+  headDirection: HeadDirection
+  headEnabled: boolean
+  headConfig: HeadConfig
 }>()
 
 const emit = defineEmits<{
@@ -94,24 +99,149 @@ function getSpriteY(_frameIndex: number): number {
   return row * props.config.frameHeight
 }
 
+// ===== 呼吸浮动检测 =====
+// Idle/Blink 帧中"闭眼帧"会整体下移几个像素（呼吸感），头部叠层和挖洞
+// 矩形必须跟随该偏移，否则浮动帧与叠层错位。这里自动检测相对 idle 首帧
+// 的最佳平移（dx,dy ∈ [-4,4]），换素材后无需改代码。
+let headShiftMap: Map<number, { x: number; y: number }> | null = null
+
+function getFrameAlpha(idx: number, ctx: CanvasRenderingContext2D): Uint8ClampedArray | null {
+  const fw = props.config.frameWidth
+  const fh = props.config.frameHeight
+  const pos = props.framePositions.get(idx)
+  if (!pos) return null
+  ctx.clearRect(0, 0, fw, fh)
+  ctx.drawImage(image.value!, pos.x, pos.y, fw, fh, 0, 0, fw, fh)
+  const data = ctx.getImageData(0, 0, fw, fh).data
+  const alpha = new Uint8ClampedArray(fw * fh)
+  for (let i = 0; i < alpha.length; i++) alpha[i] = data[i * 4 + 3]
+  return alpha
+}
+
+function diffAlphaShift(a: Uint8ClampedArray, b: Uint8ClampedArray, dx: number, dy: number): number {
+  const fw = props.config.frameWidth
+  const fh = props.config.frameHeight
+  let d = 0
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      const aOn = a[y * fw + x] > 10
+      const nx = x - dx
+      const ny = y - dy
+      const bOn = nx >= 0 && ny >= 0 && nx < fw && ny < fh && b[ny * fw + nx] > 10
+      if (aOn !== bOn) d++
+    }
+  }
+  return d
+}
+
+function detectHeadShifts() {
+  if (!image.value) return
+  const base = props.tagRanges.get('idle')
+  if (!base) return
+  const blink = props.tagRanges.get('blink')
+  const fw = props.config.frameWidth
+  const fh = props.config.frameHeight
+  const off = document.createElement('canvas')
+  off.width = fw
+  off.height = fh
+  const ctx = off.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return
+
+  const baseAlpha = getFrameAlpha(base.from, ctx)
+  if (!baseAlpha) return
+  const map = new Map<number, { x: number; y: number }>()
+  map.set(base.from, { x: 0, y: 0 })
+
+  const idxs: number[] = []
+  for (const r of [base, blink]) {
+    if (r) for (let i = r.from; i <= r.to; i++) idxs.push(i)
+  }
+  for (const idx of idxs) {
+    if (idx === base.from) continue
+    const alpha = getFrameAlpha(idx, ctx)
+    if (!alpha) continue
+    let best = { x: 0, y: 0, diff: Infinity }
+    for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const diff = diffAlphaShift(baseAlpha, alpha, dx, dy)
+        if (diff < best.diff) best = { x: dx, y: dy, diff }
+      }
+    }
+    // 平移后仍差异过大（>5%）视为无浮动，保持原位。
+    // 注意：diffAlphaShift 的匹配方向与"帧相对基准的位移"反号，
+    // 存储时取反，使 map 值 = 该帧相对基准的位移（供叠层/挖洞直接跟随）。
+    if (best.diff <= baseAlpha.length * 0.05) map.set(idx, { x: -best.x, y: -best.y })
+    else map.set(idx, { x: 0, y: 0 })
+  }
+  headShiftMap = map
+  console.log('[headShift] 呼吸浮动检测结果:', Object.fromEntries(map))
+}
+
 function loadSprite() {
   if (!props.config.src) return
   loading.value = true
-  const img = new Image()
-  img.onload = () => {
+
+  const onSpriteLoaded = (img: HTMLImageElement) => {
     image.value = img
     imageLoaded.value = true
     loading.value = false
+    detectHeadShiftsSafely()
     nextTick(() => {
       startRenderLoop()
     })
   }
-  img.onerror = () => {
-    loading.value = false
-    console.error('Failed to load sprite:', props.config.src)
+
+  // 回退：直接 Image 加载（资源无 CORS 头时使用，画面正常但浮动检测会因
+  // canvas 跨域污染而失败，已由 try/catch 兜底降级为不跟随）
+  const loadDirect = () => {
+    const img = new Image()
+    img.onload = () => onSpriteLoaded(img)
+    img.onerror = () => {
+      loading.value = false
+      console.error('Failed to load sprite:', props.config.src)
+    }
+    img.src = props.config.src
   }
-  img.src = props.config.src
+
+  // 优先 fetch → blob URL：blob 视为同源数据，canvas 不会被跨域污染，
+  // 浮动检测（getImageData）可正常读取像素。Tauri 生产环境资源经 asset
+  // 协议跨域加载时，直接 Image + getImageData 会抛 SecurityError。
+  fetch(props.config.src)
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return res.blob()
+    })
+    .then((blob) => {
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        onSpriteLoaded(img)
+      }
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        loadDirect()
+      }
+      img.src = url
+    })
+    .catch(() => loadDirect())
 }
+
+// 浮动检测依赖 framePositions（由 Aseprite JSON 解析而来），而图片加载与
+// JSON 解析是两条独立异步链：图片先加载完时 JSON 可能未就绪，检测会静默跳过。
+// JSON（tagRanges/framePositions 引用替换）就绪后重试，确保检测最终执行。
+function detectHeadShiftsSafely() {
+  try {
+    detectHeadShifts()
+  } catch (e) {
+    console.warn('呼吸浮动检测失败:', e)
+    headShiftMap = null
+  }
+}
+
+watch(() => props.tagRanges, () => {
+  if (image.value) detectHeadShiftsSafely()
+})
 
 function startRenderLoop() {
   if (animFrameId !== null) return
@@ -136,6 +266,12 @@ function renderLoop(timestamp: number) {
   lastTimestamp = timestamp
   const isLooping = isLoop()
   const frameCount = getFrameCount()
+
+  // 呼吸浮动检测兜底重试（每秒一次，直至成功）
+  if (!headShiftMap && performance.now() - lastShiftAttempt > 1000) {
+    lastShiftAttempt = performance.now()
+    detectHeadShiftsSafely()
+  }
 
   frameTimer += dt
 
@@ -176,6 +312,28 @@ function renderLoop(timestamp: number) {
     ctx.globalAlpha = 1
   } else {
     ctx.drawImage(image.value, sx, sy, fw, fh, 0, 0, cw, ch)
+  }
+
+  // 头部叠层：显示/位移与 canvas 挖洞严格同帧同步（直接操作 DOM，
+  // 绕过 Vue 响应式更新，避免偶发一帧"挖了洞但叠层未就位"的空窗）。
+  const showHead = showHeadOverlay.value && !!props.headConfig.headSlot
+  const overlayEl = overlayRef.value?.$el as HTMLElement | undefined
+  if (overlayEl) {
+    overlayEl.style.display = showHead ? '' : 'none'
+    if (showHead) {
+      const shift = getHeadShift()
+      overlayEl.style.transform =
+        `translate(${shift.x + props.headConfig.offsetX}px, ${shift.y + props.headConfig.offsetY}px)`
+      const slot = props.headConfig.headSlot
+      ctx.globalCompositeOperation = 'destination-out'
+      ctx.fillRect(
+        ((slot.x + shift.x) / fw) * cw,
+        ((slot.y + shift.y) / fh) * ch,
+        (slot.w / fw) * cw,
+        (slot.h / fh) * ch,
+      )
+      ctx.globalCompositeOperation = 'source-over'
+    }
   }
 
   if (transitioning) {
@@ -257,10 +415,39 @@ const wrapperStyle = computed(() => {
     height: h + 'px',
   }
 })
+
+// 头部叠层激活条件：仅 IDLE 状态（含正转头时保持方向的眨眼瞬间）。
+// blink 且头部正偏离时保持叠层显示，避免头部方向跳变；blink 且朝正面时
+// 隐藏叠层露出原始闭眼帧，保留眨眼动画。
+const showHeadOverlay = computed(() => {
+  if (!props.headEnabled || !props.headConfig.src) return false
+  return props.animationState === 'idle'
+    || (props.animationState === 'blink' && props.headDirection !== 'center')
+})
+
+// 叠层 DOM 常驻（v-if 条件渲染会有挂载/卸载延迟，与 canvas 挖洞不同步，
+// 偶发出现"挖了洞但叠层未挂载"的一帧空窗）。显示/位移由 renderLoop
+// 直接操作 DOM，与挖洞严格同帧。
+const overlayRef = ref<InstanceType<typeof HeadOverlay> | null>(null)
+
+// 初始检测可能因 JSON/图片时序未就绪而失败，渲染循环里每秒兜底重试，
+// 直到检测成功一次。
+let lastShiftAttempt = 0
+
+function getHeadShift(): { x: number; y: number } {
+  const range = getTagRange()
+  if (!range || !headShiftMap) return { x: 0, y: 0 }
+  return headShiftMap.get(range.from + currentFrame) ?? { x: 0, y: 0 }
+}
 </script>
 
 <template>
   <div class="pet-sprite-canvas-wrapper" :style="wrapperStyle">
+    <HeadOverlay
+      ref="overlayRef"
+      :direction="headDirection"
+      :config="headConfig"
+    />
     <canvas
       v-if="imageLoaded"
       ref="canvas"
@@ -277,6 +464,7 @@ const wrapperStyle = computed(() => {
 
 <style scoped>
 .pet-sprite-canvas-wrapper {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
