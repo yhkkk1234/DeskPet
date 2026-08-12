@@ -4,7 +4,6 @@ import type { AnimationState } from '../composables/useAnimation'
 import { STATE_TO_SPRITE_ROW, STATE_TO_FPS, STATE_TO_LOOP } from '../composables/useAnimation'
 import type { SpriteConfig, TagFrameRange, FramePosition, HeadConfig } from '../composables/usePetRenderer'
 import type { HeadDirection } from '../composables/useMouseTracking'
-import HeadOverlay from './HeadOverlay.vue'
 
 const props = defineProps<{
   animationState: AnimationState
@@ -21,6 +20,19 @@ const props = defineProps<{
 const emit = defineEmits<{
   animationComplete: []
 }>()
+
+// 9 宫格方向索引（与 headConfig.cols/rows 布局约定对应）
+const DIRECTION_INDEX: Record<HeadDirection, number> = {
+  'up-left': 0,
+  up: 1,
+  'up-right': 2,
+  left: 3,
+  center: 4,
+  right: 5,
+  'down-left': 6,
+  down: 7,
+  'down-right': 8,
+}
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const image = ref<HTMLImageElement | null>(null)
@@ -314,26 +326,35 @@ function renderLoop(timestamp: number) {
     ctx.drawImage(image.value, sx, sy, fw, fh, 0, 0, cw, ch)
   }
 
-  // 头部叠层：显示/位移与 canvas 挖洞严格同帧同步（直接操作 DOM，
-  // 绕过 Vue 响应式更新，避免偶发一帧"挖了洞但叠层未就位"的空窗）。
-  const showHead = showHeadOverlay.value && !!props.headConfig.headSlot
-  const overlayEl = overlayRef.value?.$el as HTMLElement | undefined
-  if (overlayEl) {
-    overlayEl.style.display = showHead ? '' : 'none'
-    if (showHead) {
-      const shift = getHeadShift()
-      overlayEl.style.transform =
-        `translate(${shift.x + props.headConfig.offsetX}px, ${shift.y + props.headConfig.offsetY}px)`
-      const slot = props.headConfig.headSlot
-      ctx.globalCompositeOperation = 'destination-out'
-      ctx.fillRect(
-        ((slot.x + shift.x) / fw) * cw,
-        ((slot.y + shift.y) / fh) * ch,
-        (slot.w / fw) * cw,
-        (slot.h / fh) * ch,
-      )
-      ctx.globalCompositeOperation = 'source-over'
-    }
+  // 头部叠层：挖洞 + 绘制叠层在同一 canvas 同帧完成，与身体帧共享
+  // image-rendering: pixelated（DOM 背景图不支持像素化渲染，会导致模糊），
+  // 且不存在跨层同步问题（白线/空窗/错位全部消除）。
+  if (shouldShowHead() && props.headConfig.headSlot && headImage.value) {
+    const shift = getHeadShift()
+    const slot = props.headConfig.headSlot
+    ctx.globalCompositeOperation = 'destination-out'
+    ctx.fillRect(
+      ((slot.x + shift.x) / fw) * cw,
+      ((slot.y + shift.y) / fh) * ch,
+      (slot.w / fw) * cw,
+      (slot.h / fh) * ch,
+    )
+    ctx.globalCompositeOperation = 'source-over'
+
+    const hfw = props.headConfig.frameWidth
+    const hfh = props.headConfig.frameHeight
+    const idx = DIRECTION_INDEX[props.headDirection]
+    const hcol = idx % props.headConfig.cols
+    const hrow = Math.floor(idx / props.headConfig.cols)
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(
+      headImage.value,
+      hcol * hfw, hrow * hfh, hfw, hfh,
+      ((props.headConfig.offsetX + shift.x) / fw) * cw,
+      ((props.headConfig.offsetY + shift.y) / fh) * ch,
+      (hfw / fw) * cw,
+      (hfh / fh) * ch,
+    )
   }
 
   if (transitioning) {
@@ -375,6 +396,7 @@ function crossfadeToState(_state: AnimationState) {
 }
 
 onMounted(() => {
+  loadHeadImage()
   if (props.config.src) {
     loadSprite()
   }
@@ -400,6 +422,10 @@ watch(() => props.config.src, () => {
   }
 })
 
+watch(() => props.headConfig.src, () => {
+  loadHeadImage()
+})
+
 const canvasWidth = computed(() => props.config.frameWidth * props.config.scale)
 const canvasHeight = computed(() => props.config.frameHeight * props.config.scale)
 
@@ -419,16 +445,42 @@ const wrapperStyle = computed(() => {
 // 头部叠层激活条件：仅 IDLE 状态（含正转头时保持方向的眨眼瞬间）。
 // blink 且头部正偏离时保持叠层显示，避免头部方向跳变；blink 且朝正面时
 // 隐藏叠层露出原始闭眼帧，保留眨眼动画。
-const showHeadOverlay = computed(() => {
+function shouldShowHead(): boolean {
   if (!props.headEnabled || !props.headConfig.src) return false
   return props.animationState === 'idle'
     || (props.animationState === 'blink' && props.headDirection !== 'center')
-})
+}
 
-// 叠层 DOM 常驻（v-if 条件渲染会有挂载/卸载延迟，与 canvas 挖洞不同步，
-// 偶发出现"挖了洞但叠层未挂载"的一帧空窗）。显示/位移由 renderLoop
-// 直接操作 DOM，与挖洞严格同帧。
-const overlayRef = ref<InstanceType<typeof HeadOverlay> | null>(null)
+// 头部素材（9 宫格），fetch→blob 加载（与 sprite 相同策略，避免跨域污染）
+const headImage = ref<HTMLImageElement | null>(null)
+
+function loadHeadImage() {
+  if (!props.headConfig.src) {
+    headImage.value = null
+    return
+  }
+  fetch(props.headConfig.src)
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return res.blob()
+    })
+    .then((blob) => {
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        headImage.value = img
+      }
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        headImage.value = null
+      }
+      img.src = url
+    })
+    .catch(() => {
+      headImage.value = null
+    })
+}
 
 // 初始检测可能因 JSON/图片时序未就绪而失败，渲染循环里每秒兜底重试，
 // 直到检测成功一次。
@@ -443,11 +495,6 @@ function getHeadShift(): { x: number; y: number } {
 
 <template>
   <div class="pet-sprite-canvas-wrapper" :style="wrapperStyle">
-    <HeadOverlay
-      ref="overlayRef"
-      :direction="headDirection"
-      :config="headConfig"
-    />
     <canvas
       v-if="imageLoaded"
       ref="canvas"

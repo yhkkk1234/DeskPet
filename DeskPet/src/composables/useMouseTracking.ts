@@ -72,8 +72,17 @@ export function useMouseTracking(opts: MouseTrackingOptions = {}) {
     const dist2 = rx * rx + ry * ry
     const inRange = dist2 <= radius * radius
 
-    // 静止或范围外：超过 settleMs 未移动则回正（保持最后方向直到超时）
-    if (!moved || !inRange) {
+    // 范围外：立即回正（不等待静止超时——远处活动视为"没人"，直接摆正）
+    if (!inRange) {
+      if (direction !== 'center') {
+        direction = 'center'
+        currentAngle = null
+      }
+      return direction
+    }
+
+    // 范围内静止：超过 settleMs 未移动则回正（保持最后方向直到超时）
+    if (!moved) {
       if (direction !== 'center' && now - lastMoveTime >= settleMs) {
         direction = 'center'
         currentAngle = null
