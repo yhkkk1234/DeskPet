@@ -329,7 +329,9 @@ function renderLoop(timestamp: number) {
   // 头部叠层：挖洞 + 绘制叠层在同一 canvas 同帧完成，与身体帧共享
   // image-rendering: pixelated（DOM 背景图不支持像素化渲染，会导致模糊），
   // 且不存在跨层同步问题（白线/空窗/错位全部消除）。
-  if (shouldShowHead() && props.headConfig.headSlot && headImage.value) {
+  // transition 过渡帧直接显示完整快照（旧姿势），此时挖洞/叠层会与快照
+  // 姿势错位（如 curious 歪头姿势被挖洞+正脸头）产生怪异/空白帧，故跳过。
+  if (!transitioning && shouldShowHead() && props.headConfig.headSlot && headImage.value) {
     const shift = getHeadShift()
     const slot = props.headConfig.headSlot
     ctx.globalCompositeOperation = 'destination-out'
@@ -393,6 +395,8 @@ function crossfadeToState(_state: AnimationState) {
   transitioning = true
   transitionAlpha = 1
   currentFrame = 0
+  // 重置帧计时，避免旧状态的帧计时残留导致新状态首帧被跳过（跳帧）
+  frameTimer = 0
 }
 
 onMounted(() => {

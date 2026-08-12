@@ -99,6 +99,8 @@ export interface FramePosition {
 
 const TAG_ALIASES: Record<string, string[]> = {
   speak: ['speaking'],
+  // Aseprite 标签名不含下划线（LookAround → lookaround），状态名含（look_around）
+  lookaround: ['look_around'],
 }
 
 const DEFAULT_SPRITE_CONFIG: SpriteConfig = {
