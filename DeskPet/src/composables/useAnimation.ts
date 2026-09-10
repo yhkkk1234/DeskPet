@@ -315,6 +315,17 @@ export function useAnimation(opts: {
   /** 对话进行中（从首个 token 到 chat:complete）。用于让定时触发的动作给说话让路 */
   const isSpeakingActive = ref(false)
 
+  // ⚠️ 临时诊断日志（排查「说话动画只持续 1 秒」）。定位后删除，见 __SPEAK_DIAG__。
+  if (import.meta.env.DEV) {
+    console.log('[__SPEAK_DIAG__] useAnimation 已加载（含说话修复）')
+  }
+
+  function diagSpeak(tag: string, extra = '') {
+    if (import.meta.env.DEV) {
+      console.log(`[__SPEAK_DIAG__] ${tag} state=${currentAnimationState.value} speaking=${isSpeakingActive.value} performing=${isPerformingBehavior.value} ${extra}`)
+    }
+  }
+
   function holdAnimation(state: AnimationState): () => void {
     // 说话期间不让位：holdAnimation 会无条件覆盖 currentAnimationState，
     // 若与说话抢状态，stopSpeaking 的收尾逻辑会被跳过（见 stopSpeaking 注释）
@@ -651,6 +662,17 @@ export function useAnimation(opts: {
     }
   })
 
+  // ⚠️ 临时诊断：抓「说话期间状态被谁抢走」——这是本次 bug 的核心线索。
+  // 若说话时长正常，这里只会打印一行（stopSpeaking 自己触发的 speaking→idle）；
+  // 若打印出其他状态，紧接着的那行日志就是元凶。
+  if (import.meta.env.DEV) {
+    watch(currentAnimationState, (to, from) => {
+      if (isSpeakingActive.value && from === 'speaking' && to !== 'idle') {
+        console.log(`[__SPEAK_DIAG__] ⚠️ 说话期间状态被抢走: speaking → ${to}`)
+      }
+    })
+  }
+
   function movePetTo(targetX: number, targetY: number): Promise<void> {
     return new Promise((resolve) => {
       isMoving.value = true
@@ -735,6 +757,7 @@ export function useAnimation(opts: {
   }
 
   function startSpeaking() {
+    diagSpeak('startSpeaking 进入')
     isSpeakingActive.value = true
     cancelCurrent()
     isPerformingBehavior.value = true
@@ -754,6 +777,7 @@ export function useAnimation(opts: {
    * 视觉状态只在「当前确实停在 speaking」时回 idle，避免踩掉拖拽或睡眠等持续状态。
    */
   function stopSpeaking() {
+    diagSpeak('stopSpeaking 进入')
     if (!isSpeakingActive.value) return
     isSpeakingActive.value = false
     if (currentAnimationState.value === 'speaking') {
