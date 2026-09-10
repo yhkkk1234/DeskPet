@@ -179,7 +179,7 @@ npx tauri build
 
 ## 📜 许可证
 
-本项目采用 [MIT License](../LICENSE) 开源。
+本项目采用 [MIT License](LICENSE) 开源。
 
 > 默认猫娘皮肤为原创资产，同样以 MIT 协议提供。
 > 若你自行替换为第三方角色形象作为皮肤，相关形象版权归原权利人所有，请注意其授权条款。
