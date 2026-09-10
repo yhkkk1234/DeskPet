@@ -30,3 +30,22 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 *.local
+
+# ===== 密钥与运行时数据（防误提交）=====
+# 本应用的密钥与运行时数据实际落在 %APPDATA%/DeskPet/（仓库之外）。
+# 但只要有人为本地调试建了 .env，或为了"备份桌宠"把 AppData 目录拷进仓库，
+# 就会把 master.key 和它加密的 ai_config.enc / 明文 deskpet.db 一起公开。此处兜底。
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.keystore
+*.enc
+*.ghost
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

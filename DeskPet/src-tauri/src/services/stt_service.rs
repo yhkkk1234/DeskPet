@@ -259,10 +259,3 @@ mod tests {
         assert_eq!(&wav[40..44], &(data_len as u32).to_le_bytes());
     }
 }
-
-#[test]
-fn test_debug_wav() {
-    let samples: Vec<f32> = (0..100).map(|i| 0.5).collect();
-    let wav = wav_from_f32(&samples, 16000, 1);
-    println!("{:?}", &wav[..44]);
-}

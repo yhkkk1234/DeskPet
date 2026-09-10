@@ -53,8 +53,9 @@ const error = ref('')
 
 const { ghostId, pushSystemMessage, clearMessages, loadHistory, pushPetMessage, ttsEnabled, ttsRate, ttsPitch, ttsEngine, ttsVoice } = useChat()
 const chatLoading = ref(false)
-const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, stopBlink, holdAnimation, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation()
 const { rendererType, spriteConfig, lottieConfig, tagRanges, frameDurations, framePositions, headConfig, headEnabled, setRenderer, setSpriteConfig, setHeadConfig, setHeadEnabled, parseAsepriteJson } = usePetRenderer()
+// 单次动作时长按素材 tag 实时计算（Bounce 等改帧数后不必再改代码），故需注入精灵图时序
+const { currentAnimationState, moodConfig, petX, petY, isFlipped, isPerformingBehavior, updateMood, setPersonality, startDailyRoutine, stopDailyRoutine, stopBlink, holdAnimation, playOneShot, playEmotionReaction, startSpeaking, stopSpeaking, onAnimationComplete } = useAnimation({ tagRanges, frameDurations })
 
 // ===== 头部视觉追踪（仅 IDLE，素材存在则自动启用）=====
 const headDirection = ref<HeadDirection>('center')

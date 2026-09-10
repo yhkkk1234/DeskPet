@@ -8,6 +8,8 @@ import type { HeadDirection } from '../composables/useMouseTracking'
 const props = defineProps<{
   animationState: AnimationState
   config: SpriteConfig
+  /** 素材播放速率倍率（1 = 按 JSON 帧时长原速，<1 放慢）。由 moodConfig.bounceSpeed 驱动 */
+  playbackRate: number
   tagRanges: Map<string, TagFrameRange>
   frameDurations: Map<number, number>
   framePositions: Map<number, FramePosition>
@@ -57,6 +59,7 @@ function getFps(): number {
   // override 为 0 表示该 state 优先用 JSON duration 算 FPS（支持逐动画自定义速度）
   if (override !== undefined && override > 0) return override
 
+  const rate = props.playbackRate > 0 ? props.playbackRate : 1
   const range = getTagRange()
   if (!range) return override !== undefined && override > 0 ? override : 4
 
@@ -70,7 +73,12 @@ function getFps(): number {
     }
   }
   if (count > 0 && sumMs > 0) {
-    return Math.round(1000 / (sumMs / count))
+    const avgFps = 1000 / (sumMs / count)
+    // 变速路径保持小数：rate<1 时 Math.round(avgFps) 的量化误差最大可达 6%，
+    // 会让 useAnimation 按精确倍率算出的收尾时长与渲染端对不上，末帧被吞
+    // （实测 curious 只能播 1.94 遍）。rate === 1 时仍走原来的 Math.round，
+    // 原速动作的观感与本次改动前完全一致。
+    return rate === 1 ? Math.round(avgFps) : avgFps * rate
   }
   return 4
 }
@@ -186,7 +194,11 @@ function detectHeadShifts() {
     else map.set(idx, { x: 0, y: 0 })
   }
   headShiftMap = map
-  console.log('[headShift] 呼吸浮动检测结果:', Object.fromEntries(map))
+  // 检测结果仅在开发期有用（且渲染循环每秒兜底重试时会重复触发），
+  // 生产包里不该刷控制台，故用 DEV 护栏而非裸 console.log。
+  if (import.meta.env.DEV) {
+    console.log('[headShift] 呼吸浮动检测结果:', Object.fromEntries(map))
+  }
 }
 
 function loadSprite() {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AnimationState, MoodAnimationConfig } from '../composables/useAnimation'
+import { computeBouncePlaybackRate } from '../composables/useAnimation'
 import type { RendererType, SpriteConfig, LottieConfig, TagFrameRange, FramePosition, HeadConfig } from '../composables/usePetRenderer'
 import type { HeadDirection } from '../composables/useMouseTracking'
 import PetCSSRenderer from './PetCSSRenderer.vue'
@@ -46,6 +47,10 @@ const MIRROR_DIRECTION: Record<HeadDirection, HeadDirection> = {
 const spriteHeadDirection = computed(() =>
   props.isFlipped ? MIRROR_DIRECTION[props.headDirection] : props.headDirection,
 )
+
+// 素材播放速率：bounce 由心情驱动（moodConfig.bounceSpeed），其余动作为原速。
+// 与 useAnimation 的收尾时长共用 computeBouncePlaybackRate，公式不会两处漂移。
+const playbackRate = computed(() => computeBouncePlaybackRate(props.moodConfig?.bounceSpeed))
 </script>
 
 <template>
@@ -62,6 +67,7 @@ const spriteHeadDirection = computed(() =>
       v-else-if="rendererType === 'spritesheet'"
       :animation-state="animationState"
       :config="spriteConfig"
+      :playback-rate="playbackRate"
       :tag-ranges="tagRanges"
       :frame-durations="frameDurations"
       :frame-positions="framePositions"

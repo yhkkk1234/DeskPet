@@ -2,6 +2,13 @@
 
 > 生成日期: 2026-04-26
 > 范围: 前端 UI + 逻辑
+>
+> ⚠️ **本文档为历史存档，不代表仓库当前状态。** 最新状态请看 `DeskPet/README.md`。
+> 已知与现状不符之处：
+> - **BUG-003（API Key 明文存于 localStorage）已修复** —— 现由 `src-tauri/src/data/secure_config.rs`
+>   用 AES-256-GCM 加密落盘，localStorage 只保留非敏感项（endpoint/model/外观/TTS）。
+> - 文中引用的 `src/components/BubbleDialogue.vue` 已被拆分删除。
+> - 文末统计表「待修复 5」已过期；后端测试数为 **87**（非 32）。
 
 ---
 

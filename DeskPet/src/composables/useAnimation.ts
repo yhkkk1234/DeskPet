@@ -2,6 +2,7 @@ import { ref, computed, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { clampToVirtualScreen } from './useScreenBounds'
+import type { TagFrameRange } from './usePetRenderer'
 
 export type MoodState = 'love_high' | 'love_low' | 'neutral' | 'cold' | 'distant' | 'curious'
 export type AnimationState = 'idle' | 'happy' | 'content' | 'curious' | 'cold' | 'distant' | 'speaking' | 'surprise' | 'blink' | 'dragged' | 'walk' | 'yawn' | 'sleep' | 'pout' | 'stretch' | 'spin' | 'wave' | 'bounce' | 'poke' | 'shiver' | 'look_around'
@@ -90,7 +91,7 @@ export const STATE_TO_FPS: Record<AnimationState, number> = {
   stretch: 0,    // 原 5
   spin: 0,       // 原 0（新增，JSON 算出 11，建议在 Aseprite 调慢）
   wave: 0,       // 原 0（新增，JSON 算出 5）
-  bounce: 0,     // 原 0（新增，JSON 算出 5）
+  bounce: 0,     // 原 0（新增，10 帧素材 JSON 算出 9.7）
   poke: 0,       // 原 0（新增，JSON 算出 5）
   shiver: 0,     // 原 0（新增，JSON 算出 8，建议在 Aseprite 调慢）
   look_around: 0, // 原 0（新增，JSON 算出 7，建议在 Aseprite 调慢）
@@ -115,6 +116,8 @@ export const STATE_TO_LOOP: Record<AnimationState, boolean> = {
   // 新增专属动画 state
   spin: false,
   wave: true,
+  // 单次弹跳（区别于 happy 循环）：保持循环，由 ACTION_CYCLES.bounce=2 决定播两遍，
+  // 收尾时长按「2 遍素材 ÷ 播放速率」算，见 getActionDurationMs。
   bounce: true,
   poke: false,
   shiver: true,
@@ -210,6 +213,52 @@ const BEHAVIOR_TO_ANIMATION: Record<DailyBehavior, AnimationState> = {
   peek: 'curious',
 }
 
+// 单次动作的「最短展示时长」（ms）。实际收尾时长完整公式见 getActionDurationMs：
+//   max(本表值, 素材长度 × 循环遍数 ÷ 播放速率 + 缓冲)
+// 素材长度由 public/pet/pet_spritesheet.json 的 tag 帧时长实时算出，
+// 所以表里只需要写「素材播完后还想多保持一会儿姿势」的少数几个动作。
+// 注意：本表只做「下限」，写小或干脆不写都不会截断素材——真正的截断来源是写死的上限。
+const ACTION_DURATION_MIN_MS: Partial<Record<DailyBehavior, number>> = {
+  pout: 2000, // 姿态动画：素材 1140ms，多停留一会儿更符合「不高兴」
+  yawn: 3000, // 素材 590ms，打哈欠要慢
+  sleep: 4000, // 素材 1280ms，睡眠保持
+}
+
+// 单次动作播放几遍素材。
+// bounce = 2：素材本身是「大跳(腾空25px) + 小回弹(10px)」的完整两段式，播一遍约 1 秒
+// 一闪而过；播两遍约 2 秒才有「蹦蹦跳跳」的重复感。每遍首尾都是站姿帧（84/93），
+// 循环接缝不突兀。
+// 代价：播放期间 isPerformingBehavior 锁住日常行为池，所以不宜超过 2~3 遍。
+const ACTION_CYCLES: Partial<Record<DailyBehavior, number>> = {
+  bounce: 2,
+}
+
+// 各意图动作的素材「基准播放速率」。bounce = 0.8：原速 1030ms/10帧 = 9.7fps，
+// 单次跳跃仅 650ms，偏快偏「抽」；0.8× 后约 8fps、单跳 810ms，接近此类动画常见的
+// 6~8fps 手感。再乘上由 moodConfig.bounceSpeed 推出的心情系数（见 computeBouncePlaybackRate），
+// 最终倍率 = 基准 × 心情系数。会和 ACTION_CYCLES 一起参与收尾时长计算
+// （见 getActionDurationMs），保证「放慢」不会反过来把素材截断。
+const BASE_PLAYBACK_RATE: Partial<Record<DailyBehavior, number>> = {
+  bounce: 0.8,
+}
+
+/** bounce 的基准速率（未注入 moodConfig 时的兜底），渲染端与时长计算共用 */
+export const BOUNCE_BASE_PLAYBACK_RATE = BASE_PLAYBACK_RATE.bounce ?? 1
+
+/**
+ * bounce 的最终播放倍率 = 基准速率 × 心情系数。
+ * 心情系数 = clamp(1.1 - bounceSpeed × 0.1, 0.6, 1.4)，以 bounceSpeed = 2.5（neutral）
+ * 为 1.0 基准 → 高好感 0.92×（更欢快）、好奇 0.95×、疏远 0.75×（敷衍地快弹一下）。
+ *
+ * 做成导出的纯函数是为了让「时长计算」和「渲染帧率」永远用同一个公式，
+ * 避免两处各算一遍再次漂移。
+ */
+export function computeBouncePlaybackRate(bounceSpeed: number | undefined): number {
+  if (bounceSpeed === undefined) return BOUNCE_BASE_PLAYBACK_RATE
+  const moodFactor = Math.min(1.4, Math.max(0.6, 1.1 - bounceSpeed * 0.1))
+  return BOUNCE_BASE_PLAYBACK_RATE * moodFactor
+}
+
 const MOVEMENT_EASING: Record<MovementStyle, (t: number) => number> = {
   bouncy: (t) => {
     const c4 = (2 * Math.PI) / 3
@@ -233,7 +282,10 @@ function deriveMovementStyle(personality: { openness: number; conscientiousness:
   return scores[0][0]
 }
 
-export function useAnimation() {
+export function useAnimation(opts: {
+  tagRanges?: { value: Map<string, TagFrameRange> }
+  frameDurations?: { value: Map<number, number> }
+} = {}) {
   const currentMood = ref<MoodState>('neutral')
   const currentBehavior = ref<DailyBehavior>('bounce')
   const currentAnimationState = ref<AnimationState>('idle')
@@ -292,6 +344,43 @@ export function useAnimation() {
   }
 
   let dailyTimer: ReturnType<typeof setTimeout> | null = null
+
+  const DEFAULT_ACTION_MS = 800
+
+  /**
+   * 动作收尾时长 = max(最短展示时长, 素材实际长度 × 循环遍数 ÷ 播放速率 + 缓冲)。
+   *
+   * 全部按素材实时算，而不是写死：此前 bounce 吃默认 800ms，而 Bounce tag 已从
+   * 7 帧扩到 10 帧（84-93，1030ms），末 2 帧落地/回弹永远播不到。素材再改时长
+   * （改 Aseprite 帧时长后重导 JSON）这里会自动跟随，不会重现同类截断。
+   *
+   * 节奏相关量（循环遍数、放慢倍率）也必须进这个公式：只放慢渲染而不放大时长，
+   * 等于换个方式重新截断素材。
+   */
+  function getActionDurationMs(action: DailyBehavior, playbackRate = 1): number {
+    const state = BEHAVIOR_TO_ANIMATION[action]
+    const range = opts.tagRanges?.value.get(state)
+    let tagMs = 0
+    if (range) {
+      for (let i = range.from; i <= range.to; i++) {
+        tagMs += opts.frameDurations?.value.get(i) ?? 0
+      }
+    }
+    const cycles = ACTION_CYCLES[action] ?? 1
+    const rate = playbackRate > 0 ? playbackRate : 1
+    const min = ACTION_DURATION_MIN_MS[action] ?? 0
+    // +60ms 缓冲：避免定时器比渲染器早一帧抢跑，导致末帧被吞
+    return Math.max(min, tagMs > 0 ? (tagMs * cycles) / rate + 60 : DEFAULT_ACTION_MS)
+  }
+
+  /**
+   * 动作的素材播放速率。bounce 由心情驱动（moodConfig.bounceSpeed），
+   * 其余动作保持原速，避免顺手改掉现有观感。
+   */
+  function resolvePlaybackRate(action: DailyBehavior): number {
+    if (action === 'bounce') return computeBouncePlaybackRate(moodConfig.value?.bounceSpeed)
+    return BASE_PLAYBACK_RATE[action] ?? 1
+  }
 
   function executeAction(action: DailyBehavior): Promise<void> {
     const gen = ++animationGen
@@ -446,7 +535,7 @@ export function useAnimation() {
       currentAnimationState.value = BEHAVIOR_TO_ANIMATION[action]
       isPerformingBehavior.value = true
 
-      const duration = action === 'sleep' ? 4000 : action === 'yawn' ? 3000 : action === 'pout' ? 2000 : action === 'spin' ? 1200 : 800
+      const duration = getActionDurationMs(action, resolvePlaybackRate(action))
       setTimeout(() => {
         if (animationGen === gen) {
           currentAnimationState.value = 'idle'
@@ -516,8 +605,25 @@ export function useAnimation() {
     }
   }
 
-  function triggerBlink() {
+  /**
+   * 让「当前这一代」动画失效：代际 +1 后，所有在飞的 setTimeout / release 回调
+   * 都会因 `animationGen === gen` 失配而跳过自己的收尾逻辑。
+   *
+   * 注意这里**故意不复位 isPerformingBehavior**：该标志表达的不是「有没有回调在飞」，
+   * 而是「宠物现在该不该被日常行为池打扰」。抢占方（startSpeaking）紧接着就会把它
+   * 置为 true 来锁住行为池；若在这里清成 false，被抢占的动作虽已不再复位状态，
+   * 行为池却会被解锁，日常行为就能在说话/跳跃中途插进来把动作掐断。
+   */
+  function cancelCurrent() {
     ++animationGen
+  }
+
+  function triggerBlink() {
+    // 排期到触发之间状态可能已经变了（拖拽、日常行为、说话）。眨眼是纯装饰性动作，
+    // 不该打断任何正在进行的动作——这里二次校验，不满足就放弃这一次眨眼
+    // （日常调度仍在跑，下一个周期会重新眨）。
+    if (currentAnimationState.value !== 'idle' || isPerformingBehavior.value || isMoving.value) return
+    cancelCurrent()
     currentAnimationState.value = 'blink'
   }
 
@@ -619,7 +725,7 @@ export function useAnimation() {
   }
 
   function startSpeaking() {
-    ++animationGen
+    cancelCurrent()
     isPerformingBehavior.value = true
     currentAnimationState.value = 'speaking'
     stopDailyRoutine()
