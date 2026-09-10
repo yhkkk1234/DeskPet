@@ -167,8 +167,15 @@ impl AIService {
         let mut full_response = String::new();
         let mut buffer = String::new();
 
+        // ⚠️ 临时诊断（验证流式是否真的在流）：定位后删除，见 __STREAM_DIAG__。
+        let stream_started = std::time::Instant::now();
+        let mut first_token_at: Option<std::time::Duration> = None;
+        let mut token_count: usize = 0;
+        let mut last_chunk_len: usize = 0;
+
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.map_err(|e| format!("读取流失败: {}", e))?;
+            last_chunk_len = chunk.len();
             let chunk_str = String::from_utf8_lossy(&chunk);
             buffer.push_str(&chunk_str);
 
@@ -193,6 +200,13 @@ impl AIService {
                     };
 
                     if data == "[DONE]" {
+                        tracing::info!(
+                            "[__STREAM_DIAG__] 流结束: 首字={:?} 总耗时={:?} token数={} 总长={}字",
+                            first_token_at,
+                            stream_started.elapsed(),
+                            token_count,
+                            full_response.chars().count()
+                        );
                         return Ok(full_response);
                     }
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
@@ -200,6 +214,14 @@ impl AIService {
                         // 思考过程静默丢弃（不 emit 给前端），只攒最终回答到 full_response
                         if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                             if !content.is_empty() {
+                                if first_token_at.is_none() {
+                                    first_token_at = Some(stream_started.elapsed());
+                                    tracing::info!(
+                                        "[__STREAM_DIAG__] 首字到达: {:?}（此前为等待首字节）",
+                                        stream_started.elapsed()
+                                    );
+                                }
+                                token_count += 1;
                                 on_token(content);
                                 full_response.push_str(content);
                             }
@@ -212,9 +234,16 @@ impl AIService {
             }
         }
 
+        // ⚠️ 临时诊断：流自然结束（未收到 [DONE]）时也要有输出，否则无法区分「流没结束」和「没打日志」
+        tracing::info!(
+            "[__STREAM_DIAG__] 流自然结束(无[DONE]): 首字={:?} 总耗时={:?} token数={} 末块={}字节",
+            first_token_at,
+            stream_started.elapsed(),
+            token_count,
+            last_chunk_len
+        );
         Ok(full_response)
     }
-
     pub async fn chat_with_image(&self, system_prompt: &str, image_path: &str, question: &str, messages: &[ChatMessage]) -> Result<String, String> {
         let image_path = image_path.to_string();
         let image_data = tokio::task::spawn_blocking(move || {
