@@ -1,12 +1,16 @@
 # DeskPet 桌宠
 
+[![CI](https://github.com/yhkkk1234/DeskPet/actions/workflows/ci.yml/badge.svg)](https://github.com/yhkkk1234/DeskPet/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
+
 **一个把「灵魂」存成本地文件的 AI 桌面宠物。**
 
 它会在你的桌面上生活：记住你们聊过的事，会开心也会生气，会对你的作品发表看法，一小时不理它就睡着、醒来跟你讲梦见了什么。
 
 而它的「灵魂」——人格、记忆、对你的印象——是一个**加密文件，在你自己硬盘上**（`%APPDATA%/DeskPet/`），不属于某家公司的数据库。你可以备份它、带着它换机器、或送它去做一次「灵魂传送」：签名消逝、再重生，人格被轻微扰动，原体记忆变得模糊。
 
-> **状态**：v0.1.0 早期体验版 · 仅 Windows 10/11 · MIT 开源 · [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+> **状态**：v0.1.0 早期体验版 · 仅 Windows 10/11 · MIT 开源
 
 ## 它和别的桌宠有什么不同
 
