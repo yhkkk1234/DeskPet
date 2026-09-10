@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# 同一分支的旧运行自动取消，省 runner 时间
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    # 本项目仅支持 Windows（截图功能依赖 Win32 API）。
+    # 选 windows-latest 而非 ubuntu 有两个理由：
+    #   1. Tauri 在 Windows runner 上的系统依赖开箱即用，ubuntu 需额外安装
+    #      webkit2gtk / libsoup / librsvg 等一长串包
+    #   2. 这里就是真实目标平台，测出来的结果才算数
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: DeskPet/package-lock.json
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      # src-tauri/target 不在仓库根，必须显式指定 workspace 路径，
+      # 否则缓存永远命中不了（本地这个目录曾涨到 44 GB，值得缓存）
+      - name: 缓存 Rust 构建产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: DeskPet/src-tauri -> target
+
+      - name: 安装前端依赖
+        working-directory: DeskPet
+        run: npm ci
+
+      # package.json 的 build = "vue-tsc -b && vite build"
+      # 前半段是类型检查（含 noUnusedLocals/noUnusedParameters），后半段是打包
+      - name: 类型检查 + 前端构建
+        working-directory: DeskPet
+        run: npm run build
+
+      # --locked 确保 CI 不会悄悄改动 Cargo.lock（本地用的是 --offline）
+      - name: Rust 后端测试
+        working-directory: DeskPet/src-tauri
+        run: cargo test --locked
