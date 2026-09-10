@@ -167,13 +167,21 @@ impl AIService {
         let mut full_response = String::new();
         let mut buffer = String::new();
 
-        // 流式计时：用于判断接口是否在「真流式」，也是排查「说话动作一闪而过」的第一手线索。
-        // 判别方法：首字耗时若接近总耗时（例如 1.9s / 2.2s），说明上游把整段答案缓冲完
-        // 才一次性下发，而非逐字生成 —— 此时前端只能靠最短说话时长兜住观感。
+        // 流式计时：既是「接口是否在真流式」的健康指标，也是排查「说话动作一闪而过」的第一手线索。
+        //
+        // 判别方法要看 token 间隔，而不是「首字耗时 vs 总耗时」——后者对快模型会误判：
+        // 模型本身就快时，首字快、生成也快，首字耗时天然接近总耗时，与缓冲无关。
+        // 真正能区分的是 首个间隔 与 后续间隔 的关系：
+        //   真流式  → 首个间隔 ≈ 后续间隔（每个 token 都要等模型算出来）
+        //   缓冲式  → 首个间隔 ≈ 总耗时，后续间隔远小于首个（整段早就算好了，最后一次性下发）
         let stream_started = std::time::Instant::now();
         let mut first_token_at: Option<std::time::Duration> = None;
         let mut token_count: usize = 0;
         let mut last_chunk_len: usize = 0;
+        let mut prev_token_at: Option<std::time::Duration> = None;
+        let mut gap_sum_ms: f64 = 0.0;
+        let mut gap_max_ms: f64 = 0.0;
+        let mut gap_count: usize = 0;
 
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.map_err(|e| format!("读取流失败: {}", e))?;
@@ -202,15 +210,23 @@ impl AIService {
                     };
 
                     if data == "[DONE]" {
-                        // 保留为常规日志：这条能直接反映接口是否在真流式。
-                        // 若首字耗时接近总耗时（如 1.9s/2.2s），说明上游把整段缓冲后一次性下发，
-                        // 而非逐字生成 —— 本机日志里排查「说话动作一闪而过」时先看这行。
+                        // 首个间隔 = 首字到达耗时（含模型处理 prompt + 生成第 1 个 token）；
+                        // 后续间隔均值/最大值反映真实的吐字节奏。
+                        // 缓冲式接口的典型特征：首个间隔 ≈ 总耗时，而后续间隔均值极小。
+                        let total_ms = stream_started.elapsed().as_secs_f64() * 1000.0;
+                        let first_gap_ms = first_token_at.map(|d| d.as_secs_f64() * 1000.0);
+                        let avg_gap_ms = if gap_count > 0 { gap_sum_ms / gap_count as f64 } else { 0.0 };
+                        let chars = full_response.chars().count();
+                        let chars_per_sec = if total_ms > 0.0 { chars as f64 / (total_ms / 1000.0) } else { 0.0 };
                         tracing::info!(
-                            "[流式] 首字={:?} 总耗时={:?} token数={} 总长={}字",
-                            first_token_at,
-                            stream_started.elapsed(),
+                            "[流式] 首个间隔={:?}ms 后续间隔均值={:.1}ms 最大={:.0}ms token数={} 总长={}字 总耗时={:.0}ms 均速={:.0}字/秒",
+                            first_gap_ms.map(|v| v.round()),
+                            avg_gap_ms,
+                            gap_max_ms,
                             token_count,
-                            full_response.chars().count()
+                            chars,
+                            total_ms,
+                            chars_per_sec
                         );
                         return Ok(full_response);
                     }
@@ -222,6 +238,17 @@ impl AIService {
                                 if first_token_at.is_none() {
                                     first_token_at = Some(stream_started.elapsed());
                                 }
+                                // 记录相邻 token 的到达间隔
+                                let now = stream_started.elapsed();
+                                if let Some(prev) = prev_token_at {
+                                    let gap_ms = (now - prev).as_secs_f64() * 1000.0;
+                                    gap_sum_ms += gap_ms;
+                                    if gap_ms > gap_max_ms {
+                                        gap_max_ms = gap_ms;
+                                    }
+                                    gap_count += 1;
+                                }
+                                prev_token_at = Some(now);
                                 token_count += 1;
                                 on_token(content);
                                 full_response.push_str(content);
