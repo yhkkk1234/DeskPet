@@ -312,7 +312,13 @@ export function useAnimation(opts: {
     currentAnimationState.value = state
   }
 
+  /** 对话进行中（从首个 token 到 chat:complete）。用于让定时触发的动作给说话让路 */
+  const isSpeakingActive = ref(false)
+
   function holdAnimation(state: AnimationState): () => void {
+    // 说话期间不让位：holdAnimation 会无条件覆盖 currentAnimationState，
+    // 若与说话抢状态，stopSpeaking 的收尾逻辑会被跳过（见 stopSpeaking 注释）
+    if (isSpeakingActive.value) return () => {}
     const gen = ++animationGen
     isPerformingBehavior.value = true
     currentAnimationState.value = state
@@ -327,6 +333,10 @@ export function useAnimation(opts: {
   }
 
   function playOneShot(state: AnimationState, durationMs = 600): Promise<void> {
+    // 说话优先于定时触发的动作（tickGhost 每 5 秒会调 playOneShot('curious') 等）。
+    // 不加这道守卫的话，回复只要超过 5 秒，说话姿势就会被当场换掉；
+    // 更糟的是状态被换走后 stopSpeaking 的守卫失效，isPerformingBehavior 会永久卡住。
+    if (isSpeakingActive.value) return Promise.resolve()
     const gen = ++animationGen
     isPerformingBehavior.value = true
     currentAnimationState.value = state
@@ -725,18 +735,32 @@ export function useAnimation(opts: {
   }
 
   function startSpeaking() {
+    isSpeakingActive.value = true
     cancelCurrent()
     isPerformingBehavior.value = true
     currentAnimationState.value = 'speaking'
     stopDailyRoutine()
   }
 
+  /**
+   * 结束说话。
+   *
+   * 这里**不能**用 `currentAnimationState === 'speaking'` 作为守卫——那曾导致一个
+   * 永久卡死的 bug：一旦说话期间状态被别的路径改掉（拖拽、tick 触发的 playOneShot 等），
+   * 守卫为假 → isPerformingBehavior 永远停在 true、日常行为调度器永不重启，
+   * 宠物从此除了眨眼不再做任何日常动作（startSpeaking 里的 stopDailyRoutine 停掉了它）。
+   *
+   * 改为「会话驱动」：只要还在说话会话里，就一定要释放标志并恢复调度；
+   * 视觉状态只在「当前确实停在 speaking」时回 idle，避免踩掉拖拽或睡眠等持续状态。
+   */
   function stopSpeaking() {
+    if (!isSpeakingActive.value) return
+    isSpeakingActive.value = false
     if (currentAnimationState.value === 'speaking') {
       currentAnimationState.value = 'idle'
-      isPerformingBehavior.value = false
-      startDailyRoutine()
     }
+    isPerformingBehavior.value = false
+    startDailyRoutine()
   }
 
   return {
@@ -746,6 +770,7 @@ export function useAnimation(opts: {
     moodConfig,
     isMoving,
     isPerformingBehavior,
+    isSpeakingActive,
     petX,
     petY,
     facingDirection,
