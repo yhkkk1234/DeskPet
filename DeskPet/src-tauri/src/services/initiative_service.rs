@@ -262,9 +262,14 @@ mod tests {
     #[test]
     fn test_clipboard_cooldown_respected() {
         let mut state = InitiativeState::default();
+        // 必须显式关闭其他触发源：check_triggers 按 深夜 → 电量 → 剪贴板 顺序短路返回。
+        // 原写法用 `..Default::default()`，而默认 night_greeting=true / battery_alert=true，
+        // 导致本测试在 22:00~02:00（is_late_night 为真）或未插电且电量≤20% 时必然失败
+        // —— 与剪贴板冷却逻辑无关的环境依赖型 flaky。
         let config = InitiativeConfig {
+            night_greeting: false,
             clipboard_sense: true,
-            ..Default::default()
+            battery_alert: false,
         };
         // 初始 now，剪贴板 check 刚发生（默认 now），60s 内不应再检查
         state.last_clipboard_check = Utc::now();

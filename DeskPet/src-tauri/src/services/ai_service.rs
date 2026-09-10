@@ -210,23 +210,24 @@ impl AIService {
                     };
 
                     if data == "[DONE]" {
-                        // 首个间隔 = 首字到达耗时（含模型处理 prompt + 生成第 1 个 token）；
-                        // 后续间隔均值/最大值反映真实的吐字节奏。
-                        // 缓冲式接口的典型特征：首个间隔 ≈ 总耗时，而后续间隔均值极小。
+                        // 读法：后续间隔均值 与 首个间隔 同量级 = 真流式（每步都在等模型算）；
+                        // 首个间隔远大于后续（如 1893ms vs 8.4ms）= 内容早已生成完毕、分帧下发。
+                        // 另注意「生成阶段均速」要用首字之后的耗时算，否则 1.9s 的等待会把均速摊薄。
                         let total_ms = stream_started.elapsed().as_secs_f64() * 1000.0;
-                        let first_gap_ms = first_token_at.map(|d| d.as_secs_f64() * 1000.0);
+                        let first_gap_ms = first_token_at.map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0);
                         let avg_gap_ms = if gap_count > 0 { gap_sum_ms / gap_count as f64 } else { 0.0 };
                         let chars = full_response.chars().count();
-                        let chars_per_sec = if total_ms > 0.0 { chars as f64 / (total_ms / 1000.0) } else { 0.0 };
+                        let gen_ms = (total_ms - first_gap_ms).max(1.0);
+                        let gen_cps = chars as f64 / (gen_ms / 1000.0);
                         tracing::info!(
-                            "[流式] 首个间隔={:?}ms 后续间隔均值={:.1}ms 最大={:.0}ms token数={} 总长={}字 总耗时={:.0}ms 均速={:.0}字/秒",
-                            first_gap_ms.map(|v| v.round()),
+                            "[流式] 首个间隔={:.0}ms 后续间隔均值={:.1}ms 最大={:.0}ms token数={} 总长={}字 总耗时={:.0}ms 生成阶段均速={:.0}字/秒",
+                            first_gap_ms,
                             avg_gap_ms,
                             gap_max_ms,
                             token_count,
                             chars,
                             total_ms,
-                            chars_per_sec
+                            gen_cps
                         );
                         return Ok(full_response);
                     }
