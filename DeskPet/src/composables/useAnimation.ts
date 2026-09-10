@@ -315,11 +315,21 @@ export function useAnimation(opts: {
   /** 对话进行中（从首个 token 到 chat:complete）。用于让定时触发的动作给说话让路 */
   const isSpeakingActive = ref(false)
 
-  // ⚠️ 临时诊断日志（排查「说话动画只持续 1 秒」）。定位后删除，见 __SPEAK_DIAG__。
-  if (import.meta.env.DEV) {
-    console.log('[__SPEAK_DIAG__] useAnimation 已加载（含说话修复）')
+  // 说话的「最短展示时长」。LLM 首字节延迟长、吐字快，一轮回复的流式窗口经常只有 1 秒出头，
+  // 而 Speak 素材一个循环是 820ms（4 帧，内含 2 次张嘴）—— 结束太快时宠物只「说」了两下嘴
+  // 就闭嘴，看起来像动作没播完。这里给一个下限，让观感上真的像在说话。
+  const MIN_SPEAKING_MS = 2500
+  let speakingStartedAt = 0
+  let speakTailTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearSpeakTail() {
+    if (speakTailTimer) {
+      clearTimeout(speakTailTimer)
+      speakTailTimer = null
+    }
   }
 
+  // ⚠️ 临时诊断日志（验证最短说话时长是否生效）。验证后删除，见 __SPEAK_DIAG__。
   function diagSpeak(tag: string, extra = '') {
     if (import.meta.env.DEV) {
       console.log(`[__SPEAK_DIAG__] ${tag} state=${currentAnimationState.value} speaking=${isSpeakingActive.value} performing=${isPerformingBehavior.value} ${extra}`)
@@ -759,6 +769,8 @@ export function useAnimation(opts: {
   function startSpeaking() {
     diagSpeak('startSpeaking 进入')
     isSpeakingActive.value = true
+    speakingStartedAt = performance.now()
+    clearSpeakTail()
     cancelCurrent()
     isPerformingBehavior.value = true
     currentAnimationState.value = 'speaking'
@@ -780,9 +792,24 @@ export function useAnimation(opts: {
     diagSpeak('stopSpeaking 进入')
     if (!isSpeakingActive.value) return
     isSpeakingActive.value = false
-    if (currentAnimationState.value === 'speaking') {
+
+    // 会话立刻结束（isSpeakingActive 立即置 false，让日常行为能正常恢复），
+    // 但视觉上补足最短展示时长：只在「仍停在 speaking」时才延时回 idle，
+    // 期间若别的动作（拖拽/日常行为）接管了状态，回调会因状态不符而自动放弃。
+    const elapsed = performance.now() - speakingStartedAt
+    const tail = MIN_SPEAKING_MS - elapsed
+    if (tail > 0 && currentAnimationState.value === 'speaking') {
+      clearSpeakTail()
+      speakTailTimer = setTimeout(() => {
+        speakTailTimer = null
+        if (currentAnimationState.value === 'speaking') {
+          currentAnimationState.value = 'idle'
+        }
+      }, tail)
+    } else if (currentAnimationState.value === 'speaking') {
       currentAnimationState.value = 'idle'
     }
+
     isPerformingBehavior.value = false
     startDailyRoutine()
   }
