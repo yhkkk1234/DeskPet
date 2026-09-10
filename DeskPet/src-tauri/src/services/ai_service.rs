@@ -167,7 +167,9 @@ impl AIService {
         let mut full_response = String::new();
         let mut buffer = String::new();
 
-        // ⚠️ 临时诊断（验证流式是否真的在流）：定位后删除，见 __STREAM_DIAG__。
+        // 流式计时：用于判断接口是否在「真流式」，也是排查「说话动作一闪而过」的第一手线索。
+        // 判别方法：首字耗时若接近总耗时（例如 1.9s / 2.2s），说明上游把整段答案缓冲完
+        // 才一次性下发，而非逐字生成 —— 此时前端只能靠最短说话时长兜住观感。
         let stream_started = std::time::Instant::now();
         let mut first_token_at: Option<std::time::Duration> = None;
         let mut token_count: usize = 0;
@@ -200,8 +202,11 @@ impl AIService {
                     };
 
                     if data == "[DONE]" {
+                        // 保留为常规日志：这条能直接反映接口是否在真流式。
+                        // 若首字耗时接近总耗时（如 1.9s/2.2s），说明上游把整段缓冲后一次性下发，
+                        // 而非逐字生成 —— 本机日志里排查「说话动作一闪而过」时先看这行。
                         tracing::info!(
-                            "[__STREAM_DIAG__] 流结束: 首字={:?} 总耗时={:?} token数={} 总长={}字",
+                            "[流式] 首字={:?} 总耗时={:?} token数={} 总长={}字",
                             first_token_at,
                             stream_started.elapsed(),
                             token_count,
@@ -216,10 +221,6 @@ impl AIService {
                             if !content.is_empty() {
                                 if first_token_at.is_none() {
                                     first_token_at = Some(stream_started.elapsed());
-                                    tracing::info!(
-                                        "[__STREAM_DIAG__] 首字到达: {:?}（此前为等待首字节）",
-                                        stream_started.elapsed()
-                                    );
                                 }
                                 token_count += 1;
                                 on_token(content);
@@ -234,9 +235,9 @@ impl AIService {
             }
         }
 
-        // ⚠️ 临时诊断：流自然结束（未收到 [DONE]）时也要有输出，否则无法区分「流没结束」和「没打日志」
+        // 流自然结束（未收到 [DONE]）也要有输出，否则「没日志」会被误读成「流没结束」
         tracing::info!(
-            "[__STREAM_DIAG__] 流自然结束(无[DONE]): 首字={:?} 总耗时={:?} token数={} 末块={}字节",
+            "[流式] 自然结束(无[DONE]): 首字={:?} 总耗时={:?} token数={} 末块={}字节",
             first_token_at,
             stream_started.elapsed(),
             token_count,
